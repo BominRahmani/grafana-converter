@@ -12,7 +12,7 @@ local utils = commonlib.utils;
       local pieChart = g.panel.pieChart,
       local barGauge = g.panel.barGauge,
 
-      diskReadLatencyPanel:
+      diskReadLatencyPanelPanel:
         commonlib.panels.generic.timeSeries.base.new(
           'Disk read latency',
           targets=[t.ClickHouseProfileEvents_DiskReadElapsedMicroseconds],
@@ -22,7 +22,7 @@ local utils = commonlib.utils;
         + g.panel.timeSeries.fieldConfig.defaults.custom.withSpanNulls('false')
 ,
 
-      diskWriteLatencyPanel:
+      diskWriteLatencyPanelPanel:
         commonlib.panels.generic.timeSeries.base.new(
           'Disk write latency',
           targets=[t.ClickHouseProfileEvents_DiskWriteElapsedMicroseconds],
@@ -32,7 +32,7 @@ local utils = commonlib.utils;
         + g.panel.timeSeries.fieldConfig.defaults.custom.withSpanNulls('false')
 ,
 
-      networkTransmitLatencyInboundPanel:
+      networkTransmitLatencyInboundPanelPanel:
         commonlib.panels.generic.timeSeries.base.new(
           'Network receive latency',
           targets=[t.ClickHouseProfileEvents_NetworkReceiveElapsedMicroseconds],
@@ -42,7 +42,7 @@ local utils = commonlib.utils;
         + g.panel.timeSeries.fieldConfig.defaults.custom.withSpanNulls('false')
 ,
 
-      networkTransmitLatencyOutboundPanel:
+      networkTransmitLatencyOutboundPanelPanel:
         commonlib.panels.generic.timeSeries.base.new(
           'Network transmit latency',
           targets=[t.ClickHouseProfileEvents_NetworkSendElapsedMicroseconds],
@@ -52,7 +52,7 @@ local utils = commonlib.utils;
         + g.panel.timeSeries.fieldConfig.defaults.custom.withSpanNulls('false')
 ,
 
-      zooKeeperWaitTimePanel:
+      zooKeeperWaitTimePanelPanel:
         commonlib.panels.generic.timeSeries.base.new(
           'ZooKeeper wait time',
           targets=[t.ClickHouseProfileEvents_ZooKeeperWaitMicroseconds],

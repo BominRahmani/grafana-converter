@@ -390,43 +390,99 @@ class MixinConverter:
         
         return jsonnet
 
+    def generate_g_file(self) -> str:
+        """
+        Generates the g.libsonnet file content that imports grafonnet.
+        """
+        return 'import \'github.com/grafana/grafonnet/gen/grafonnet-v11.0.0/main.libsonnet\''
+
+    def extract_queries(self, content: str) -> Dict[str, Any]:
+        """
+        Extracts Prometheus queries from dashboard panels.
+        Returns a dictionary of query definitions.
+        """
+        queries = {}
+        
+        # Find all expr definitions in panels
+        expr_matches = re.finditer(
+            r'expr:\s*[\'"]([^\'"]*)[\'"].*?legendFormat:\s*[\'"]([^\'"]*)[\'"]',
+            content,
+            re.DOTALL
+        )
+        
+        for match in expr_matches:
+            expr = match.group(1)
+            legend = match.group(2)
+            
+            # Generate a query name based on the metric or pattern
+            metric_match = re.search(r'([A-Za-z_]+){', expr)
+            if metric_match:
+                metric_name = metric_match.group(1)
+                query_name = f"{metric_name}"
+                
+                queries[query_name] = {
+                    'expr': expr,
+                    'legend': legend
+                }
+        
+        return queries
+
+    def generate_targets_file(self) -> str:
+        """
+        Generates the new format targets.libsonnet file content.
+        """
+        content = []
+        # Add standard imports
+        content.append("local g = import './g.libsonnet';")
+        content.append("local prometheusQuery = g.query.prometheus;")
+        content.append("")
+        content.append("{")
+        content.append("  new(this): {")
+        content.append("    local vars = this.grafana.variables,")
+        content.append("")
+        
+        # Add query definitions
+        for query_name, query_def in self.queries.items():
+            content.append(f"    {query_name}:")
+            content.append("      prometheusQuery.new(")
+            content.append("        '${' + vars.datasources.prometheus.name + '}',")
+            content.append(f"        '{query_def['expr']}'")
+            content.append("      )")
+            if query_def.get('legend'):
+                content.append(f"      + prometheusQuery.withLegendFormat('{query_def['legend']}'),")
+            else:
+                content.append("      ,")
+            content.append("")
+        
+        # Close the structure
+        content.append("  },")
+        content.append("}")
+        
+        return '\n'.join(content)
+
     def convert_mixin(self, input_dir: Path, output_dir: Path) -> None:
         """
         Converts all dashboard and panel definitions from old format to new format.
         """
-        all_panels = {}
+        # Initialize queries dictionary
+        self.queries = {}
         
+        # Generate g.libsonnet file
+        g_file = output_dir / 'g.libsonnet'
+        g_file.write_text(self.generate_g_file())
+
         for dashboard_file in input_dir.glob('*.libsonnet'):
             if dashboard_file.name != 'dashboards.libsonnet':
                 print(f"Processing {dashboard_file.name}...")
                 content = dashboard_file.read_text()
                 
                 # Extract panel definitions
-                panel_matches = re.finditer(
-                    r'local\s+(\w+)\s*\(([^)]*)\)\s*=\s*({[^;]*});',
-                    content,
-                    re.DOTALL
-                )
+                self.panel_definitions.update(self.extract_panel_definitions(content))
                 
-                for match in panel_matches:
-                    panel_name = match.group(1)
-                    params = match.group(2)
-                    panel_body = match.group(3)
-                    
-                    try:
-                        panel_def = {
-                            'params': params,
-                            'body': panel_body
-                        }
-                        all_panels[panel_name] = panel_def
-                        print(f"Found panel: {panel_name}")
-                    except Exception as e:
-                        print(f"Warning: Could not parse panel {panel_name}: {e}")
+                # Extract queries
+                self.queries.update(self.extract_queries(content))
                 
-                # Store the panels in the converter instance
-                self.panel_definitions.update(all_panels)
-                
-                # Extract dashboard structure and store it
+                # Extract dashboard structure
                 self.dashboard = self.extract_dashboard_structure(content)
                 
                 # Generate dashboard file
@@ -434,13 +490,16 @@ class MixinConverter:
                 dashboard_output.write_text(self.generate_dashboard_file(self.dashboard))
         
         # Generate panels file
-        print(f"Found {len(self.panel_definitions)} panels")
         panels_file = output_dir / 'panels.libsonnet'
         panels_file.write_text(self.generate_panels_file())
 
         # Generate rows file
         rows_file = output_dir / 'rows.libsonnet'
         rows_file.write_text(self.generate_rows_file())
+        
+        # Generate targets file
+        targets_file = output_dir / 'targets.libsonnet'
+        targets_file.write_text(self.generate_targets_file())
 
 def main():
     """
