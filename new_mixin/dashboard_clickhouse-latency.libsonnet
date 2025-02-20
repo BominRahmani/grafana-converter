@@ -18,13 +18,13 @@ local logslib = import 'logs-lib/logs/main.libsonnet';
       'clickhouse-latency.json':
         g.dashboard.new(prefix + ' ClickHouse latency')
         + g.dashboard.withPanels(
-          g.util.grid.wrapPanels([
-            panels.diskReadLatencyPanel,
-            panels.diskWriteLatencyPanel,
-            panels.networkTransmitLatencyInboundPanel,
-            panels.networkTransmitLatencyOutboundPanel,
-            panels.zooKeeperWaitTimePanel,
-          ])
+          g.util.grid.wrapPanels(
+            std.flattenArrays([
+              this.grafana.rows.row_1,
+              this.grafana.rows.row_2,
+              this.grafana.rows.row_3,
+            ])
+          )
         )
         + root.applyCommon(
           vars.singleInstance,
@@ -37,4 +37,14 @@ local logslib = import 'logs-lib/logs/main.libsonnet';
           period
         ),
     },
+
+  applyCommon(vars, uid, tags, links, annotations, timezone, refresh, period):
+    g.dashboard.withTags(tags)
+    + g.dashboard.withUid(uid)
+    + g.dashboard.withLinks(std.objectValues(links))
+    + g.dashboard.withTimezone(timezone)
+    + g.dashboard.withRefresh(refresh)
+    + g.dashboard.time.withFrom(period)
+    + g.dashboard.withVariables(vars)
+    + g.dashboard.withAnnotations(std.objectValues(annotations)),
 }

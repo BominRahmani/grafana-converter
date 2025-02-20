@@ -197,17 +197,12 @@ class MixinConverter:
         panels_by_y = {}
         for panel in self.dashboard['panels']:
             print(f"\nDebug: Processing panel: {panel}")
-            # Extract y-coordinate using regex instead of JSON parsing
-            grid_pos = panel['gridPos']
-            y_match = re.search(r'y:\s*(\d+)', grid_pos)
-            x_match = re.search(r'x:\s*(\d+)', grid_pos)
+            y_pos = panel['gridPos']['y']
+            x_pos = panel['gridPos']['x']
             
-            if y_match and x_match:
-                y_pos = int(y_match.group(1))
-                x_pos = int(x_match.group(1))
-                if y_pos not in panels_by_y:
-                    panels_by_y[y_pos] = []
-                panels_by_y[y_pos].append((x_pos, panel))
+            if y_pos not in panels_by_y:
+                panels_by_y[y_pos] = []
+            panels_by_y[y_pos].append((x_pos, panel))
 
         print(f"\nDebug: Panels by y: {panels_by_y}")
 
@@ -227,7 +222,9 @@ class MixinConverter:
             
             # Add panels to row
             for _, panel in row_panels:
-                content.append(f"        panels.{panel['name']} {{ gridPos+: {panel['gridPos']} }},")
+                grid_pos = panel['gridPos']
+                grid_pos_str = f"{{ h: {grid_pos['h']}, w: {grid_pos['w']}, x: {grid_pos['x']}, y: {grid_pos['y']} }}"
+                content.append(f"        panels.{panel['name']} {{ gridPos+: {grid_pos_str} }},")
             
             content.append("      ],")
             content.append("")
@@ -265,7 +262,19 @@ class MixinConverter:
             
             for match in re.finditer(panel_pattern, layout_content, re.DOTALL):
                 panel_name = match.group(1)
-                grid_pos = match.group(2).strip()
+                grid_pos_str = match.group(2).strip()
+                
+                # Convert gridPos string to dictionary
+                grid_pos = {}
+                x_match = re.search(r'x:\s*(\d+)', grid_pos_str)
+                y_match = re.search(r'y:\s*(\d+)', grid_pos_str)
+                w_match = re.search(r'w:\s*(\d+)', grid_pos_str)
+                h_match = re.search(r'h:\s*(\d+)', grid_pos_str)
+                
+                if x_match: grid_pos['x'] = int(x_match.group(1))
+                if y_match: grid_pos['y'] = int(y_match.group(1))
+                if w_match: grid_pos['w'] = int(w_match.group(1))
+                if h_match: grid_pos['h'] = int(h_match.group(1))
                 
                 print(f"\nMatched panel: {panel_name}")
                 print(f"With gridPos: {grid_pos}")
@@ -311,13 +320,16 @@ class MixinConverter:
         content.append(f"      '{dashboard['title'].lower().replace(' ', '-')}.json':")
         content.append(f"        g.dashboard.new(prefix + ' {dashboard['title']}')")
         content.append("        + g.dashboard.withPanels(")
-        content.append("          g.util.grid.wrapPanels([")
-        
-        # Add panels in their grid positions
-        for panel in dashboard['panels']:
-            content.append(f"            panels.{panel['name']},")
-            
-        content.append("          ])")
+        content.append("          g.util.grid.wrapPanels(")
+        content.append("            std.flattenArrays([")
+
+        # Add all rows from the rows file
+        num_rows = len(set(panel['gridPos'].get('y', 0) for panel in dashboard['panels']))
+        for i in range(1, num_rows + 1):
+            content.append(f"              this.grafana.rows.row_{i},")
+
+        content.append("            ])")
+        content.append("          )")
         content.append("        )")
         content.append("        + root.applyCommon(")
         content.append("          vars.singleInstance,")
@@ -330,6 +342,17 @@ class MixinConverter:
         content.append("          period")
         content.append("        ),")
         content.append("    },")
+        content.append("")
+        # Add the applyCommon function
+        content.append("  applyCommon(vars, uid, tags, links, annotations, timezone, refresh, period):")
+        content.append("    g.dashboard.withTags(tags)")
+        content.append("    + g.dashboard.withUid(uid)")
+        content.append("    + g.dashboard.withLinks(std.objectValues(links))")
+        content.append("    + g.dashboard.withTimezone(timezone)")
+        content.append("    + g.dashboard.withRefresh(refresh)")
+        content.append("    + g.dashboard.time.withFrom(period)")
+        content.append("    + g.dashboard.withVariables(vars)")
+        content.append("    + g.dashboard.withAnnotations(std.objectValues(annotations)),")
         content.append("}")
         
         return '\n'.join(content)
