@@ -435,27 +435,147 @@ class MixinConverter:
         # Add standard imports
         content.append("local g = import './g.libsonnet';")
         content.append("local prometheusQuery = g.query.prometheus;")
+        content.append("local commonlib = import 'common-lib/common/main.libsonnet';")
+        content.append("local utils = commonlib.utils {")
+        content.append("  labelsToPanelLegend(labels): std.join(' - ', ['{{%s}}' % [label] for label in labels]),")
+        content.append("};")
         content.append("")
         content.append("{")
         content.append("  new(this): {")
         content.append("    local vars = this.grafana.variables,")
+        content.append("    local config = this.config,")
+        content.append("    local testNameLabel = config.testNameLabel,")
+        content.append("    local nodeNameLabel = config.nodeNameLabel,")
         content.append("")
         
         # Add query definitions
         for query_name, query_def in self.queries.items():
+            expr = query_def['expr']
+            legend = query_def.get('legend', '')
+            
+            # Determine if this is a node-based or test-based query
+            if 'node_name' in expr:
+                selector_var = '%(nodeNameSelector)s'
+                legend_label = 'nodeNameLabel'
+            else:
+                selector_var = '%(testNameSelector)s'
+                legend_label = 'testNameLabel'
+            
+            # Complete the query with selector and time range if needed
+            if '{' in expr and '}' not in expr:
+                expr = expr + selector_var + '}'
+            if '$__interval' not in expr and 'rate(' in expr:
+                expr = expr + '[$__rate_interval]'
+            if '$__interval' not in expr and 'increase(' in expr:
+                expr = expr + '[$__interval:]'
+            
             content.append(f"    {query_name}:")
             content.append("      prometheusQuery.new(")
             content.append("        '${' + vars.datasources.prometheus.name + '}',")
-            content.append(f"        '{query_def['expr']}'")
+            content.append(f"        '{expr}' % vars")
             content.append("      )")
-            if query_def.get('legend'):
-                content.append(f"      + prometheusQuery.withLegendFormat('{query_def['legend']}'),")
+            
+            # Add legend format if present
+            if legend:
+                content.append(f"      + prometheusQuery.withLegendFormat('%s' % utils.labelsToPanelLegend({legend_label})),")
             else:
                 content.append("      ,")
             content.append("")
         
         # Close the structure
         content.append("  },")
+        content.append("}")
+        
+        return '\n'.join(content)
+
+    def generate_variables_file(self) -> str:
+        """
+        Generates the new format variables.libsonnet file content.
+        """
+        content = []
+        # Add standard imports
+        content.append("local g = import './g.libsonnet';")
+        content.append("local var = g.dashboard.variable;")
+        content.append("local commonlib = import 'common-lib/common/main.libsonnet';")
+        content.append("local utils = commonlib.utils;")
+        content.append("")
+        content.append("// Generates chained variables to use on all dashboards")
+        content.append("{")
+        content.append("  new(this, varMetric):")
+        content.append("    {")
+        content.append("      local filteringSelector = this.config.filteringSelector,")
+        content.append("      local groupLabels = this.config.groupLabels,")
+        content.append("      local instanceLabels = this.config.instanceLabels,")
+        content.append("      local nodeNameLabel = this.config.nodeNameLabel,")
+        content.append("      local testNameLabel = this.config.testNameLabel,")
+        content.append("")
+        content.append("      local root = self,")
+        
+        # Add variable generation function
+        content.append("      local variablesFromLabels(groupLabels, instanceLabels, filteringSelector, multiInstance=true) =")
+        content.append("        local chainVarProto(index, chainVar) =")
+        content.append("          var.query.new(chainVar.label)")
+        content.append("          + var.query.withDatasourceFromVariable(root.datasources.prometheus)")
+        content.append("          + var.query.queryTypes.withLabelValues(")
+        content.append("            chainVar.label,")
+        content.append("            '%s{%s}' % [varMetric, chainVar.chainSelector],")
+        content.append("          )")
+        content.append("          + var.query.generalOptions.withLabel(utils.toSentenceCase(chainVar.label))")
+        content.append("          + var.query.selectionOptions.withIncludeAll(")
+        content.append("            value=if (!multiInstance && std.member(instanceLabels, chainVar.label)) then false else true,")
+        content.append("            customAllValue='.+'")
+        content.append("          )")
+        content.append("          + var.query.selectionOptions.withMulti(")
+        content.append("            if (!multiInstance && std.member(instanceLabels, chainVar.label)) then false else true,")
+        content.append("          )")
+        content.append("          + var.query.refresh.onTime()")
+        content.append("          + var.query.withSort(")
+        content.append("            i=1,")
+        content.append("            type='alphabetical',")
+        content.append("            asc=true,")
+        content.append("            caseInsensitive=false")
+        content.append("          );")
+        content.append("        std.mapWithIndex(chainVarProto, utils.chainLabels(groupLabels + instanceLabels, [filteringSelector])),")
+        
+        # Add datasource definition
+        content.append("      datasources: {")
+        content.append("        prometheus:")
+        content.append("          var.datasource.new('prometheus_datasource', 'prometheus')")
+        content.append("          + var.datasource.generalOptions.withLabel('Data source')")
+        content.append("          + var.datasource.withRegex(''),")
+        content.append("      },")
+        content.append("")
+        
+        # Add variable sets
+        content.append("      multiInstance:")
+        content.append("        [root.datasources.prometheus]")
+        content.append("        + variablesFromLabels(groupLabels, instanceLabels, filteringSelector),")
+        content.append("")
+        content.append("      singleInstance:")
+        content.append("        [root.datasources.prometheus]")
+        content.append("        + variablesFromLabels(groupLabels, instanceLabels, filteringSelector, multiInstance=false),")
+        content.append("")
+        content.append("      overviewVariables:")
+        content.append("        [root.datasources.prometheus]")
+        content.append("        + variablesFromLabels(groupLabels, instanceLabels + testNameLabel, filteringSelector, multiInstance=true),")
+        content.append("")
+        
+        # Add selector definitions
+        content.append("      queriesSelector:")
+        content.append("        '%s' % [")
+        content.append("          utils.labelsToPromQLSelector(groupLabels),")
+        content.append("        ],")
+        content.append("")
+        content.append("      testNameSelector:")
+        content.append("        '%s' % [")
+        content.append("          utils.labelsToPromQLSelector(groupLabels + instanceLabels + testNameLabel),")
+        content.append("        ],")
+        content.append("")
+        content.append("      nodeNameSelector:")
+        content.append("        '%s' % [")
+        content.append("          utils.labelsToPromQLSelector(groupLabels + instanceLabels + nodeNameLabel),")
+        content.append("        ],")
+        content.append("    },")
         content.append("}")
         
         return '\n'.join(content)
@@ -470,7 +590,11 @@ class MixinConverter:
         # Generate g.libsonnet file
         g_file = output_dir / 'g.libsonnet'
         g_file.write_text(self.generate_g_file())
-
+        
+        # Generate variables.libsonnet file
+        variables_file = output_dir / 'variables.libsonnet'
+        variables_file.write_text(self.generate_variables_file())
+        
         for dashboard_file in input_dir.glob('*.libsonnet'):
             if dashboard_file.name != 'dashboards.libsonnet':
                 print(f"Processing {dashboard_file.name}...")
