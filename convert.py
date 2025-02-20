@@ -580,12 +580,72 @@ class MixinConverter:
         
         return '\n'.join(content)
 
+    def generate_links_file(self) -> str:
+        """
+        Generates the new format links.libsonnet file content.
+        """
+        content = []
+        # Add standard imports
+        content.append("local g = import './g.libsonnet';")
+        content.append("{")
+        content.append("  local link = g.dashboard.link,")
+        content.append("  new(this):")
+        content.append("    {")
+        
+        # Add regular dashboard links and "back to" links for each dashboard
+        for dashboard_name in self.dashboard_names:
+            # Convert dashboard name to link names, removing dashes and using camelCase
+            clean_name = ''.join(word.title() for word in dashboard_name.replace('.json', '').split('-'))
+            
+            # Regular dashboard link
+            link_name = clean_name[0].lower() + clean_name[1:]  # camelCase for regular link
+            dashboard_var = f"this.grafana.dashboards['{dashboard_name}']"
+            display_name = ' '.join(word.title() for word in dashboard_name.replace('.json', '').split('-'))
+            
+            content.append(f"      {link_name}:")
+            content.append(f"        link.link.new('{display_name}', '/d/' + {dashboard_var}.uid)")
+            content.append("        + link.link.options.withKeepTime(true),")
+            content.append("")
+            
+            # Back to link
+            back_link_name = f"backTo{clean_name}"
+            content.append(f"      {back_link_name}:")
+            content.append(f"        link.link.new('Back to {display_name}', '/d/' + {dashboard_var}.uid)")
+            content.append("        + link.link.options.withKeepTime(true),")
+            content.append("")
+
+        # Add the "All dashboards" dropdown link
+        content.append("      otherDashboards:")
+        content.append("        link.dashboards.new('All dashboards', this.config.dashboardTags)")
+        content.append("        + link.dashboards.options.withIncludeVars(true)")
+        content.append("        + link.dashboards.options.withKeepTime(true)")
+        content.append("        + link.dashboards.options.withAsDropdown(true),")
+        
+        # Close the initial object
+        content.append("    }")
+
+        # Add the conditional logs link
+        content.append("    +")
+        content.append("    if this.config.enableLokiLogs then")
+        content.append("      {")
+        content.append("        logs:")
+        content.append("          link.link.new(std.join(' ', [std.get(this.config.dashboardTitle, 'Logs'), 'Logs']), '/d/' + this.grafana.dashboards.logs.uid)")
+        content.append("          + link.link.options.withKeepTime(true),")
+        content.append("      }")
+        content.append("    else {},")
+        
+        # Close the structure
+        content.append("}")
+        
+        return '\n'.join(content)
+
     def convert_mixin(self, input_dir: Path, output_dir: Path) -> None:
         """
         Converts all dashboard and panel definitions from old format to new format.
         """
-        # Initialize queries dictionary
+        # Initialize queries dictionary and dashboard names list
         self.queries = {}
+        self.dashboard_names = []
         
         # Generate g.libsonnet file
         g_file = output_dir / 'g.libsonnet'
@@ -609,6 +669,10 @@ class MixinConverter:
                 # Extract dashboard structure
                 self.dashboard = self.extract_dashboard_structure(content)
                 
+                # Store dashboard name for links generation
+                dashboard_name = f"{self.dashboard['title'].lower().replace(' ', '-')}.json"
+                self.dashboard_names.append(dashboard_name)
+                
                 # Generate dashboard file
                 dashboard_output = output_dir / f"dashboard_{dashboard_file.stem}.libsonnet"
                 dashboard_output.write_text(self.generate_dashboard_file(self.dashboard))
@@ -624,6 +688,10 @@ class MixinConverter:
         # Generate targets file
         targets_file = output_dir / 'targets.libsonnet'
         targets_file.write_text(self.generate_targets_file())
+        
+        # Generate links file
+        links_file = output_dir / 'links.libsonnet'
+        links_file.write_text(self.generate_links_file())
 
 def main():
     """
