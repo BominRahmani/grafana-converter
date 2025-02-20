@@ -1,3 +1,13 @@
+- Convert Dashboards
+- Convert Panels
+- Convert Queries
+- Convert Links
+
+- Make sure all settings look right
+- Try to allow the usage of premade graphs
+
+
+```
 import json
 import re
 from typing import Dict, Any, List, Optional
@@ -190,53 +200,50 @@ class MixinConverter:
         content.append("{")
         content.append("  new(panels): {")
 
-        print("\nDebug: Starting generate_rows_file")
-        print(f"Debug: Dashboard panels: {self.dashboard['panels']}")
+        # Group panels by their row
+        current_row = []
+        current_row_name = None
+        row_counter = 1
 
-        # Group panels by their y-coordinate to form rows
-        panels_by_y = {}
         for panel in self.dashboard['panels']:
-            print(f"\nDebug: Processing panel: {panel}")
-            # Extract y-coordinate using regex instead of JSON parsing
-            grid_pos = panel['gridPos']
-            y_match = re.search(r'y:\s*(\d+)', grid_pos)
-            x_match = re.search(r'x:\s*(\d+)', grid_pos)
-            
-            if y_match and x_match:
-                y_pos = int(y_match.group(1))
-                x_pos = int(x_match.group(1))
-                if y_pos not in panels_by_y:
-                    panels_by_y[y_pos] = []
-                panels_by_y[y_pos].append((x_pos, panel))
+            if panel['name'].lower().endswith('row'):
+                # If we have panels from previous row, write them
+                if current_row:
+                    self._write_row(content, current_row_name or f"row_{row_counter}", current_row)
+                    row_counter += 1
+                    current_row = []
+                
+                # Extract row name from panel if available
+                row_title_match = re.search(r"new\(['\"]([^'\"]+)['\"]", panel.get('params', ''))
+                current_row_name = row_title_match.group(1) if row_title_match else f"row_{row_counter}"
+                current_row.append(f"        g.panel.row.new('{current_row_name}'),")
+            else:
+                # Add panel with its grid position
+                grid_pos = panel.get('gridPos', '{}')
+                current_row.append(f"        panels.{panel['name']} {{ gridPos+: {grid_pos} }},")
 
-        print(f"\nDebug: Panels by y: {panels_by_y}")
-
-        # Sort rows by y-coordinate
-        sorted_y = sorted(panels_by_y.keys())
-        print(f"Debug: Sorted y coordinates: {sorted_y}")
-
-        # Generate each row
-        for i, y_pos in enumerate(sorted_y):
-            row_panels = panels_by_y[y_pos]
-            content.append(f"    row_{i + 1}:")
-            content.append("      [")
-            content.append(f"        g.panel.row.new('Row {i + 1}'),")
-            
-            # Sort panels within row by x-coordinate
-            row_panels.sort(key=lambda p: p[0])  # Sort by x_pos
-            
-            # Add panels to row
-            for _, panel in row_panels:
-                content.append(f"        panels.{panel['name']} {{ gridPos+: {panel['gridPos']} }},")
-            
-            content.append("      ],")
-            content.append("")
+        # Write the last row if there are remaining panels
+        if current_row:
+            self._write_row(content, current_row_name or f"row_{row_counter}", current_row)
 
         # Close the structure
         content.append("  },")
         content.append("}")
         
         return '\n'.join(content)
+
+    def _write_row(self, content: List[str], row_name: str, row_panels: List[str]):
+        """
+        Helper method to write a row definition to the content list.
+        """
+        # Convert row name to a valid identifier
+        row_id = re.sub(r'[^a-zA-Z0-9_]', '_', row_name.lower())
+        
+        content.append(f"    {row_id}:")
+        content.append("      [")
+        content.extend(row_panels)
+        content.append("      ],")
+        content.append("")
 
     def extract_dashboard_structure(self, content: str) -> Dict[str, Any]:
         """
@@ -433,3 +440,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+```

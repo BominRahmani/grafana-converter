@@ -19,6 +19,11 @@ local logslib = import 'logs-lib/logs/main.libsonnet';
         g.dashboard.new(prefix + ' ClickHouse latency')
         + g.dashboard.withPanels(
           g.util.grid.wrapPanels([
+            panels.diskReadLatencyPanel,
+            panels.diskWriteLatencyPanel,
+            panels.networkTransmitLatencyInboundPanel,
+            panels.networkTransmitLatencyOutboundPanel,
+            panels.zooKeeperWaitTimePanel,
           ])
         )
         + root.applyCommon(
