@@ -2,6 +2,7 @@ import json
 import re
 from typing import Dict, Any, List, Optional
 from pathlib import Path
+import sys
 
 class MixinConverter:
     """Converts old format Grafana mixin dashboards and panels to new format."""
@@ -639,6 +640,166 @@ class MixinConverter:
         
         return '\n'.join(content)
 
+    def convert_config_file(self, content: str) -> str:
+        """
+        Converts old format config.libsonnet to new format.
+        """
+        # Start with standard config structure
+        new_config = [
+            "{",
+            "  // any modular library should include as inputs:",
+            "  // 'dashboardNamePrefix' - Use as prefix for all Dashboards and (optional) rule groups",
+            "  // 'filteringSelector' - Static selector to apply to ALL dashboard variables of type query, panel queries, alerts and recording rules.",
+            "  // 'groupLabels' - one or more labels that can be used to identify 'group' of instances. In simple cases, can be 'job' or 'cluster'.",
+            "  // 'instanceLabels' - one or more labels that can be used to identify single entity of instances. In simple cases, can be 'instance' or 'pod'.",
+            "  // 'uid' - UID to prefix all dashboards original uids",
+            "",
+        ]
+
+        # Extract values from old config using regex
+        enable_multi_cluster = re.search(r'enableMultiCluster:\s*(true|false)', content)
+        enable_multi_cluster = enable_multi_cluster.group(1) if enable_multi_cluster else 'false'
+
+        filter_selector = re.search(r'filterSelector:\s*\'([^\']+)\'', content)
+        filter_selector = filter_selector.group(1) if filter_selector else None
+
+        # Extract uid from filter selector or dashboard tags
+        dashboard_tags = re.search(r'dashboardTags:\s*\[(.*?)\]', content, re.DOTALL)
+        if dashboard_tags:
+            # Try to extract uid from dashboard tags
+            tags = [tag.strip().strip("'").strip('"') for tag in dashboard_tags.group(1).split(',')]
+            uid = next((tag.replace('-mixin', '') for tag in tags), 'unknown')
+        elif filter_selector:
+            # Try to extract from job selector
+            job_match = re.search(r'job=~"([^"]+)"', filter_selector)
+            if job_match:
+                # Clean up the job pattern to create a uid
+                uid = job_match.group(1).replace('.*/','').replace('.*','').replace('"','').split('/')[-1]
+            else:
+                uid = 'unknown'
+        else:
+            uid = 'unknown'
+
+        dashboard_period = re.search(r'dashboardPeriod:\s*\'([^\']+)\'', content)
+        dashboard_period = dashboard_period.group(1) if dashboard_period else 'now-30m'
+
+        dashboard_timezone = re.search(r'dashboardTimezone:\s*\'([^\']+)\'', content)
+        dashboard_timezone = dashboard_timezone.group(1) if dashboard_timezone else 'default'
+
+        dashboard_refresh = re.search(r'dashboardRefresh:\s*\'([^\']+)\'', content)
+        dashboard_refresh = dashboard_refresh.group(1) if dashboard_refresh else '1m'
+
+        enable_loki_logs = re.search(r'enableLokiLogs:\s*(true|false)', content)
+        enable_loki_logs = enable_loki_logs.group(1) if enable_loki_logs else 'true'
+
+        # Find any selector pattern that uses multi-cluster logic
+        selector_pattern = r'(\w+Selector):\s*if\s*self\.enableMultiCluster\s*then\s*\'([^\']+)\'\s*else\s*\'([^\']+)\''
+        selector_match = re.search(selector_pattern, content)
+        
+        if selector_match:
+            multi_cluster_selector = selector_match.group(2)
+            single_cluster_selector = selector_match.group(3)
+            
+            # Parse labels from selectors
+            multi_cluster_labels = [label for label in re.findall(r'(\w+)=~"\$\w+"', multi_cluster_selector)]
+            single_cluster_labels = [label for label in re.findall(r'(\w+)=~"\$\w+"', single_cluster_selector)]
+        else:
+            # Default to basic labels if no selector pattern found
+            multi_cluster_labels = ['job', 'cluster']
+            single_cluster_labels = ['job']
+
+        # Extract log labels
+        log_labels = re.search(r'logLabels:\s*if\s*self\.enableMultiCluster\s*then\s*\[(.*?)\]\s*else\s*\[(.*?)\]', content, re.DOTALL)
+        if log_labels:
+            multi_cluster_log_labels = log_labels.group(1).strip()
+            single_cluster_log_labels = log_labels.group(2).strip()
+        else:
+            # Default log labels if not found
+            multi_cluster_log_labels = "'job', 'instance', 'cluster', 'level'"
+            single_cluster_log_labels = "'job', 'instance', 'level'"
+
+        # Format the group labels as a proper array string
+        multi_group_labels = "['" + "', '".join(multi_cluster_labels) + "']"
+        single_group_labels = "['" + "', '".join(single_cluster_labels) + "']"
+
+        # Add converted config
+        new_config.extend([
+            f"  enableMultiCluster: {enable_multi_cluster},",
+            f"  filteringSelector: '{filter_selector}',",
+            f"  groupLabels: if self.enableMultiCluster then {multi_group_labels} else {single_group_labels},",
+            "  instanceLabels: ['instance'],",
+            f"  dashboardTags: ['{uid}-mixin'],",
+            f"  uid: '{uid}',",
+            "  dashboardNamePrefix: '',",
+            "",
+            "  // additional params",
+            f"  dashboardPeriod: '{dashboard_period}',",
+            f"  dashboardTimezone: '{dashboard_timezone}',",
+            f"  dashboardRefresh: '{dashboard_refresh}',",
+            "",
+            "  // logs lib related",
+            f"  enableLokiLogs: {enable_loki_logs},",
+            f"  logLabels: if self.enableMultiCluster then [{multi_cluster_log_labels}] else [{single_cluster_log_labels}],",
+            "  logsVolumeGroupBy: 'level',",
+            "  showLogsVolume: true,",
+            "}",
+        ])
+
+        return '\n'.join(new_config)
+
+    def generate_makefile(self) -> str:
+        """
+        Generates a standard Makefile for the mixin.
+        """
+        return '''JSONNET_FMT := jsonnetfmt -n 2 --max-blank-lines 1 --string-style s --comment-style s
+
+.PHONY: all
+all: build dashboards_out prometheus_alerts.yaml
+
+vendor: jsonnetfile.json
+	jb install
+
+.PHONY: build
+build: vendor
+
+.PHONY: fmt
+fmt:
+	find . -name 'vendor' -prune -o -name '*.libsonnet' -print -o -name '*.jsonnet' -print | \\
+		xargs -n 1 -- $(JSONNET_FMT) -i
+
+.PHONY: lint
+lint: build
+	find . -name 'vendor' -prune -o -name '*.libsonnet' -print -o -name '*.jsonnet' -print | \\
+		while read f; do \\
+			$(JSONNET_FMT) "$$f" | diff -u "$$f" -; \\
+		done
+	mixtool lint mixin.libsonnet
+
+dashboards_out: mixin.libsonnet config.libsonnet dashboards.libsonnet
+	@mkdir -p dashboards_out
+	mixtool generate dashboards mixin.libsonnet -d dashboards_out
+
+prometheus_alerts.yaml: mixin.libsonnet alerts.libsonnet
+	mixtool generate alerts mixin.libsonnet -a prometheus_alerts.yaml
+
+.PHONY: clean
+clean:
+	rm -rf dashboards_out prometheus_alerts.yaml
+'''
+
+    def copy_readme(self, input_dir: Path, output_dir: Path) -> None:
+        """
+        Copies README file from input directory to output directory if it exists.
+        """
+        readme_patterns = ['README.md', 'Readme.md', 'readme.md']
+        for pattern in readme_patterns:
+            readme_file = input_dir / pattern
+            if readme_file.exists():
+                output_readme = output_dir / pattern
+                output_readme.write_text(readme_file.read_text())
+                print(f"Copied {pattern} to output directory")
+                break
+
     def convert_mixin(self, input_dir: Path, output_dir: Path) -> None:
         """
         Converts all dashboard and panel definitions from old format to new format.
@@ -654,50 +815,145 @@ class MixinConverter:
         # Generate variables.libsonnet file
         variables_file = output_dir / 'variables.libsonnet'
         variables_file.write_text(self.generate_variables_file())
+
+        # Generate Makefile
+        makefile = output_dir / 'Makefile'
+        makefile.write_text(self.generate_makefile())
+
+        # Generate empty jsonnetfile.json
+        jsonnetfile = output_dir / 'jsonnetfile.json'
+        jsonnetfile.write_text(self.generate_jsonnetfile())
+
+        # Copy README if it exists
+        self.copy_readme(input_dir, output_dir)
+
+        # Convert config.libsonnet if it exists
+        config_file = input_dir / 'config.libsonnet'
+        if config_file.exists():
+            content = config_file.read_text()
+            new_config = self.convert_config_file(content)
+            new_config_file = output_dir / 'config.libsonnet'
+            new_config_file.write_text(new_config)
         
-        for dashboard_file in input_dir.glob('*.libsonnet'):
-            if dashboard_file.name != 'dashboards.libsonnet':
-                print(f"Processing {dashboard_file.name}...")
-                content = dashboard_file.read_text()
-                
-                # Extract panel definitions
-                self.panel_definitions.update(self.extract_panel_definitions(content))
-                
-                # Extract queries
-                self.queries.update(self.extract_queries(content))
-                
-                # Extract dashboard structure
-                self.dashboard = self.extract_dashboard_structure(content)
-                
-                # Store dashboard name for links generation
-                dashboard_name = f"{self.dashboard['title'].lower().replace(' ', '-')}.json"
-                self.dashboard_names.append(dashboard_name)
-                
-                # Generate dashboard file
-                dashboard_output = output_dir / f"dashboard_{dashboard_file.stem}.libsonnet"
-                dashboard_output.write_text(self.generate_dashboard_file(self.dashboard))
+        # Process dashboard files
+        dashboards_dir = input_dir / 'dashboards'
+        if dashboards_dir.exists():
+            for dashboard_file in dashboards_dir.glob('*.libsonnet'):
+                if dashboard_file.name != 'dashboards.libsonnet':
+                    print(f"Processing {dashboard_file.name}...")
+                    content = dashboard_file.read_text()
+                    
+                    # Extract panel definitions
+                    self.panel_definitions.update(self.extract_panel_definitions(content))
+                    
+                    # Extract queries
+                    self.queries.update(self.extract_queries(content))
+                    
+                    # Extract dashboard structure
+                    self.dashboard = self.extract_dashboard_structure(content)
+                    
+                    # Store dashboard name for links generation
+                    dashboard_name = f"{self.dashboard['title'].lower().replace(' ', '-')}.json"
+                    self.dashboard_names.append(dashboard_name)
+                    
+                    # Generate dashboard file
+                    dashboard_output = output_dir / f"dashboard_{dashboard_file.stem}.libsonnet"
+                    dashboard_output.write_text(self.generate_dashboard_file(self.dashboard))
         
-        # Generate panels file
+        # Generate remaining files
         panels_file = output_dir / 'panels.libsonnet'
         panels_file.write_text(self.generate_panels_file())
 
-        # Generate rows file
         rows_file = output_dir / 'rows.libsonnet'
         rows_file.write_text(self.generate_rows_file())
         
-        # Generate targets file
         targets_file = output_dir / 'targets.libsonnet'
         targets_file.write_text(self.generate_targets_file())
         
-        # Generate links file
         links_file = output_dir / 'links.libsonnet'
         links_file.write_text(self.generate_links_file())
+
+        # Run make build after all files are generated
+        print("Running make build...")
+        self.run_make_build(output_dir)
+
+    def generate_jsonnetfile(self) -> str:
+        """
+        Generates jsonnetfile.json with required Grafana dependencies.
+        """
+        return '''{
+  "version": 1,
+  "dependencies": [
+    {
+      "source": {
+        "git": {
+          "remote": "https://github.com/grafana/jsonnet-libs.git",
+          "subdir": "common-lib"
+        }
+      },
+      "version": "master"
+    },
+    {
+      "source": {
+        "git": {
+          "remote": "https://github.com/grafana/grafonnet.git",
+          "subdir": "gen/grafonnet-v10.0.0"
+        }
+      },
+      "version": "main"
+    },
+    {
+      "source": {
+        "git": {
+          "remote": "https://github.com/grafana/jsonnet-libs.git",
+          "subdir": "logs-lib"
+        }
+      },
+      "version": "master"
+    }
+  ],
+  "legacyImports": true
+}'''
+
+    def run_make_build(self, output_dir: Path) -> None:
+        """
+        Runs 'make build' in the output directory.
+        """
+        import subprocess
+        import os
+        
+        try:
+            # Change to output directory
+            original_dir = os.getcwd()
+            os.chdir(output_dir)
+            
+            # Run make build
+            print("Running 'make build'...")
+            result = subprocess.run(['make', 'build'], 
+                                 capture_output=True, 
+                                 text=True)
+            
+            if result.returncode == 0:
+                print("Successfully ran 'make build'")
+            else:
+                print("Error running 'make build':")
+                print(result.stderr)
+                
+        except Exception as e:
+            print(f"Error running make build: {e}")
+        finally:
+            # Change back to original directory
+            os.chdir(original_dir)
 
 def main():
     """
     Main function to run the converter.
     """
-    input_dir = Path('dashboards')
+    if len(sys.argv) != 2:
+        print("Usage: python3 convert.py <input_directory>")
+        sys.exit(1)
+
+    input_dir = Path(sys.argv[1])
     output_dir = Path('new_mixin')
     output_dir.mkdir(parents=True, exist_ok=True)
     

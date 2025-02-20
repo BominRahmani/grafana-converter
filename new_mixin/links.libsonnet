@@ -29,7 +29,7 @@ local g = import './g.libsonnet';
     if this.config.enableLokiLogs then
       {
         logs:
-          link.link.new(std.join(' ', [this.config.dashboardNamePrefix, 'Logs']), '/d/' + this.grafana.dashboards.logs.uid)
+          link.link.new(std.join(' ', [std.get(this.config.dashboardTitle, 'Logs'), 'Logs']), '/d/' + this.grafana.dashboards.logs.uid)
           + link.link.options.withKeepTime(true),
       }
     else {},
