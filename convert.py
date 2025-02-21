@@ -11,6 +11,7 @@ class MixinConverter:
         self.panel_definitions = {}
         self.variables = []
         self.links = []
+        self.dashboards = []  # Initialize the dashboards list
         self.panel_types = {
             'timeseries': 'timeSeries',
             'stat': 'stat',
@@ -193,43 +194,50 @@ class MixinConverter:
         content.append("  new(panels): {")
 
         print("\nDebug: Starting generate_rows_file")
-        print(f"Debug: Dashboard panels: {self.dashboard['panels']}")
+        
+        # Keep track of total rows across all dashboards
+        total_rows = 0
+        
+        # Process each dashboard
+        for dashboard in self.dashboards:
+            print(f"Debug: Processing dashboard: {dashboard}")
+            if 'panels' in dashboard:
+                # Group panels by their y-coordinate to form rows
+                panels_by_y = {}
+                for panel in dashboard['panels']:
+                    print(f"\nDebug: Processing panel: {panel}")
+                    y_pos = panel['gridPos']['y']
+                    x_pos = panel['gridPos']['x']
+                    
+                    if y_pos not in panels_by_y:
+                        panels_by_y[y_pos] = []
+                    panels_by_y[y_pos].append((x_pos, panel))
 
-        # Group panels by their y-coordinate to form rows
-        panels_by_y = {}
-        for panel in self.dashboard['panels']:
-            print(f"\nDebug: Processing panel: {panel}")
-            y_pos = panel['gridPos']['y']
-            x_pos = panel['gridPos']['x']
-            
-            if y_pos not in panels_by_y:
-                panels_by_y[y_pos] = []
-            panels_by_y[y_pos].append((x_pos, panel))
+                print(f"\nDebug: Panels by y: {panels_by_y}")
 
-        print(f"\nDebug: Panels by y: {panels_by_y}")
+                # Sort rows by y-coordinate
+                sorted_y = sorted(panels_by_y.keys())
+                print(f"Debug: Sorted y coordinates: {sorted_y}")
 
-        # Sort rows by y-coordinate
-        sorted_y = sorted(panels_by_y.keys())
-        print(f"Debug: Sorted y coordinates: {sorted_y}")
-
-        # Generate each row
-        for i, y_pos in enumerate(sorted_y):
-            row_panels = panels_by_y[y_pos]
-            content.append(f"    row_{i + 1}:")
-            content.append("      [")
-            content.append(f"        g.panel.row.new('Row {i + 1}'),")
-            
-            # Sort panels within row by x-coordinate
-            row_panels.sort(key=lambda p: p[0])  # Sort by x_pos
-            
-            # Add panels to row
-            for _, panel in row_panels:
-                grid_pos = panel['gridPos']
-                grid_pos_str = f"{{ h: {grid_pos['h']}, w: {grid_pos['w']}, x: {grid_pos['x']}, y: {grid_pos['y']} }}"
-                content.append(f"        panels.{panel['name']} {{ gridPos+: {grid_pos_str} }},")
-            
-            content.append("      ],")
-            content.append("")
+                # Generate each row
+                for y_pos in sorted_y:
+                    total_rows += 1  # Increment total rows counter
+                    row_panels = panels_by_y[y_pos]
+                    content.append(f"    row_{total_rows}:")
+                    content.append("      [")
+                    content.append(f"        g.panel.row.new('Row {total_rows}'),")
+                    
+                    # Sort panels within row by x-coordinate
+                    row_panels.sort(key=lambda p: p[0])  # Sort by x_pos
+                    
+                    # Add panels to row
+                    for _, panel in row_panels:
+                        grid_pos = panel['gridPos']
+                        grid_pos_str = f"{{ h: {grid_pos['h']}, w: {grid_pos['w']}, x: {grid_pos['x']}, y: {grid_pos['y']} }}"
+                        content.append(f"        panels.{panel['name']} {{ gridPos+: {grid_pos_str} }},")
+                    
+                    content.append("      ],")
+                    content.append("")
 
         # Close the structure
         content.append("  },")
@@ -297,9 +305,9 @@ class MixinConverter:
             
         return dashboard
 
-    def generate_dashboard_file(self, dashboard: Dict[str, Any]) -> str:
+    def generate_dashboard_file(self, dashboards: List[Dict[str, Any]]) -> str:
         """
-        Generates the new format dashboard.libsonnet file content.
+        Generates the new format dashboard.libsonnet file content combining all dashboards.
         """
         content = []
         content.append("local g = import './g.libsonnet';")
@@ -319,33 +327,40 @@ class MixinConverter:
         content.append("    local panels = this.grafana.panels;")
         content.append("")
         content.append("    {")
-        content.append(f"      '{dashboard['title'].lower().replace(' ', '-')}.json':")
-        content.append(f"        g.dashboard.new(prefix + ' {dashboard['title']}')")
-        content.append("        + g.dashboard.withPanels(")
-        content.append("          g.util.grid.wrapPanels(")
-        content.append("            std.flattenArrays([")
 
-        # Add all rows from the rows file
-        num_rows = len(set(panel['gridPos'].get('y', 0) for panel in dashboard['panels']))
-        for i in range(1, num_rows + 1):
-            content.append(f"              this.grafana.rows.row_{i},")
+        # Add each dashboard
+        for dashboard in dashboards:
+            # Replace hyphens with underscores in dashboard ID
+            dashboard_id = dashboard['title'].lower().replace(' ', '_').replace('-', '_')
+            content.append(f"      {dashboard_id}:")
+            content.append(f"        g.dashboard.new(prefix + ' {dashboard['title']}')")
+            content.append("        + g.dashboard.withPanels(")
+            content.append("          g.util.grid.wrapPanels(")
+            content.append("            [")
 
-        content.append("            ])")
-        content.append("          )")
-        content.append("        )")
-        content.append("        + root.applyCommon(")
-        content.append("          vars.singleInstance,")
-        content.append("          uid,")
-        content.append("          tags,")
-        content.append("          links,")
-        content.append("          annotations,")
-        content.append("          timezone,")
-        content.append("          refresh,")
-        content.append("          period")
-        content.append("        ),")
+            # Add panels for this dashboard
+            for panel in dashboard['panels']:
+                grid_pos = panel.get('gridPos', {})
+                content.append(f"              panels.{panel['name']} {{ gridPos+: {{ h: {grid_pos.get('h', 8)}, w: {grid_pos.get('w', 12)}, x: {grid_pos.get('x', 0)}, y: {grid_pos.get('y', 0)} }} }},")
+
+            content.append("            ]")
+            content.append("          )")
+            content.append("        )")
+            content.append("        + root.applyCommon(")
+            content.append("          vars.singleInstance,")
+            content.append(f"          uid + '_{dashboard_id}',")  # Also update the UID to use underscore
+            content.append("          tags,")
+            content.append("          links,")
+            content.append("          annotations,")
+            content.append("          timezone,")
+            content.append("          refresh,")
+            content.append("          period")
+            content.append("        ),")
+            content.append("")
+
+        # Add the applyCommon function
         content.append("    },")
         content.append("")
-        # Add the applyCommon function
         content.append("  applyCommon(vars, uid, tags, links, annotations, timezone, refresh, period):")
         content.append("    g.dashboard.withTags(tags)")
         content.append("    + g.dashboard.withUid(uid)")
@@ -850,6 +865,36 @@ clean:
         
         return '\n'.join(content)
 
+    def run_make_build(self, output_dir: Path) -> None:
+        """
+        Runs 'make build' in the output directory.
+        """
+        import subprocess
+        import os
+        
+        try:
+            # Change to output directory
+            original_dir = os.getcwd()
+            os.chdir(output_dir)
+            
+            # Run make build
+            print("Running 'make build'...")
+            result = subprocess.run(['make', 'build'], 
+                                 capture_output=True, 
+                                 text=True)
+            
+            if result.returncode == 0:
+                print("Successfully ran 'make build'")
+            else:
+                print("Error running 'make build':")
+                print(result.stderr)
+                
+        except Exception as e:
+            print(f"Error running make build: {e}")
+        finally:
+            # Change back to original directory
+            os.chdir(original_dir)
+
     def convert_mixin(self, input_dir: Path, output_dir: Path) -> None:
         """
         Converts all dashboard and panel definitions from old format to new format.
@@ -857,6 +902,7 @@ clean:
         # Initialize queries dictionary and dashboard names list
         self.queries = {}
         self.dashboard_names = []
+        self.dashboards = []  # Store all dashboard definitions
         
         # Generate g.libsonnet file
         g_file = output_dir / 'g.libsonnet'
@@ -896,20 +942,21 @@ clean:
                     # Extract panel definitions
                     self.panel_definitions.update(self.extract_panel_definitions(content))
                     
-                    # Extract queries (this will now also store an example metric)
+                    # Extract queries
                     self.queries.update(self.extract_queries(content))
                     
                     # Extract dashboard structure
-                    self.dashboard = self.extract_dashboard_structure(content)
+                    dashboard = self.extract_dashboard_structure(content)
+                    self.dashboards.append(dashboard)  # Store the dashboard
                     
                     # Store dashboard name for links generation
-                    dashboard_name = f"{self.dashboard['title'].lower().replace(' ', '-')}.json"
+                    dashboard_name = f"{dashboard['title'].lower().replace(' ', '-')}.json"
                     self.dashboard_names.append(dashboard_name)
-                    
-                    # Generate dashboard file
-                    dashboard_output = output_dir / f"dashboard_{dashboard_file.stem}.libsonnet"
-                    dashboard_output.write_text(self.generate_dashboard_file(self.dashboard))
-        
+
+        # Generate single dashboards file with all dashboards
+        dashboards_file = output_dir / 'dashboards.libsonnet'
+        dashboards_file.write_text(self.generate_dashboard_file(self.dashboards))
+
         # Generate remaining files
         panels_file = output_dir / 'panels.libsonnet'
         panels_file.write_text(self.generate_panels_file())
@@ -968,36 +1015,6 @@ clean:
   ],
   "legacyImports": true
 }'''
-
-    def run_make_build(self, output_dir: Path) -> None:
-        """
-        Runs 'make build' in the output directory.
-        """
-        import subprocess
-        import os
-        
-        try:
-            # Change to output directory
-            original_dir = os.getcwd()
-            os.chdir(output_dir)
-            
-            # Run make build
-            print("Running 'make build'...")
-            result = subprocess.run(['make', 'build'], 
-                                 capture_output=True, 
-                                 text=True)
-            
-            if result.returncode == 0:
-                print("Successfully ran 'make build'")
-            else:
-                print("Error running 'make build':")
-                print(result.stderr)
-                
-        except Exception as e:
-            print(f"Error running make build: {e}")
-        finally:
-            # Change back to original directory
-            os.chdir(original_dir)
 
 def main():
     """
