@@ -4,35 +4,36 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 import sys
 
+## How unfortunate is this, why do i torture myself???
+## Laugh and the world laughs with you, weep and you weep alone.
+## I dedicate this converter to my extrememe distaste in Grafana, all that is and all that will be.
+
 class MixinConverter:
-    """Converts old format Grafana mixin dashboards and panels to new format."""
     
     def __init__(self):
         self.panel_definitions = {}
         self.variables = []
         self.links = []
-        self.dashboards = []  # Initialize the dashboards list
+        self.dashboards = []
         self.panel_types = {
             'timeseries': 'timeSeries',
             'stat': 'stat',
-            'gauge': 'barGauge',
-            'table': 'table',
+            'gauge': 'gauge', ## i dont understand why this shit doesn't work, TODO fix this later
+            'table': 'table', ## hahahah this DEFINITELY does not work right now, TODO fix this later
             'row': 'row',
             'piechart': 'pieChart',
             'alertlist': 'alertList',
             'linear': 'timeSeries',
             'prometheus': 'timeSeries'
         }
-        self.example_metric = None  # Add this line to store a metric name
+        ## lol we do this so we can remember a metric that we will later use in the variables.libsonnet, 
+        ## why?? because vitaly thats why
+        self.example_metric = None 
 
+    ## we create a dictionary of the panels to try to mimick whats going on behind the scenes in the old format.
     def extract_panel_definitions(self, content: str) -> Dict[str, Any]:
-        """
-        Extracts panel definitions from the dashboard file content.
-        Handles function-style panel definitions.
-        """
         panels = {}
         
-        # Find all local panel function definitions
         panel_matches = re.finditer(
             r'local\s+(\w+)\s*\(([^)]*)\)\s*=\s*({[^;]*});',
             content,
@@ -45,10 +46,9 @@ class MixinConverter:
             panel_body = match.group(3)
             
             try:
-                # Store the raw panel definition
                 panel_def = {
                     'params': params,
-                    'body': panel_body  # Store the raw body, don't parse as JSON yet
+                    'body': panel_body
                 }
                 panels[panel_name + 'Panel'] = panel_def
             except Exception as e:
@@ -57,13 +57,8 @@ class MixinConverter:
         return panels
 
     def convert_panel_to_new_format(self, panel_name: str, panel_def: Dict[str, Any]) -> str:
-        """
-        Converts a panel definition to the new format.
-        Returns a string with the converted panel definition.
-        """
         raw_body = panel_def['body']
         
-        # Extract title and description using regex
         title_match = re.search(r'title:\s*[\'"]([^\'"]*)[\'"]', raw_body)
         title = title_match.group(1) if title_match else ''
         
@@ -305,6 +300,18 @@ class MixinConverter:
             
         return dashboard
 
+    def _create_link_name(self, name: str) -> str:
+        """
+        Standardized method to create link names from dashboard names/titles.
+        Used by both dashboard and links generation.
+        """
+        # Remove .json extension if present
+        name = name.replace('.json', '')
+        # Replace both spaces and dashes with underscores
+        words = name.replace(' ', '_').replace('-', '_').split('_')
+        # Convert to camelCase
+        return words[0].lower() + ''.join(word.title() for word in words[1:])
+
     def generate_dashboard_file(self, dashboards: List[Dict[str, Any]]) -> str:
         """
         Generates the new format dashboard.libsonnet file content combining all dashboards.
@@ -330,8 +337,17 @@ class MixinConverter:
 
         # Add each dashboard
         for dashboard in dashboards:
-            # Replace hyphens with underscores in dashboard ID
-            dashboard_id = dashboard['title'].lower().replace(' ', '_').replace('-', '_')
+            # Get the dashboard title and remove any instance of the mixin name
+            mixin_name = dashboard['title'].split()[0].lower()  # Assume first word is mixin name
+            remaining_title = ' '.join(dashboard['title'].split()[1:])  # Rest of the title
+            
+            # Create dashboard ID from remaining title
+            dashboard_id = remaining_title.lower().replace(' ', '_').replace('-', '_')
+            
+            # Create link name using standardized method and prepend mixin name
+            base_link_name = self._create_link_name(remaining_title)
+            link_name = f"{mixin_name.lower()}{base_link_name[0].upper()}{base_link_name[1:]}"
+            
             content.append(f"      {dashboard_id}:")
             content.append(f"        g.dashboard.new(prefix + ' {dashboard['title']}')")
             content.append("        + g.dashboard.withPanels(")
@@ -348,9 +364,9 @@ class MixinConverter:
             content.append("        )")
             content.append("        + root.applyCommon(")
             content.append("          vars.singleInstance,")
-            content.append(f"          uid + '_{dashboard_id}',")  # Also update the UID to use underscore
+            content.append(f"          uid + '_{dashboard_id}',")
             content.append("          tags,")
-            content.append("          links,")
+            content.append(f"          links {{ {link_name}+:: {{}} }},")  # Now includes mixin name
             content.append("          annotations,")
             content.append("          timezone,")
             content.append("          refresh,")
@@ -614,22 +630,19 @@ class MixinConverter:
         
         # Add regular dashboard links and "back to" links for each dashboard
         for dashboard_name in self.dashboard_names:
-            # Convert dashboard name to link names, removing dashes and using camelCase
-            clean_name = ''.join(word.title() for word in dashboard_name.replace('.json', '').split('-'))
+            # Use standardized method for link names
+            link_name = self._create_link_name(dashboard_name)
+            display_name = ' '.join(word.title() for word in dashboard_name.replace('.json', '').split('-'))
+            dashboard_var = f"this.grafana.dashboards['{dashboard_name}']"
             
             # Regular dashboard link
-            link_name = clean_name[0].lower() + clean_name[1:]  # camelCase for regular link
-            dashboard_var = f"this.grafana.dashboards['{dashboard_name}']"
-            display_name = ' '.join(word.title() for word in dashboard_name.replace('.json', '').split('-'))
-            
             content.append(f"      {link_name}:")
             content.append(f"        link.link.new('{display_name}', '/d/' + {dashboard_var}.uid)")
             content.append("        + link.link.options.withKeepTime(true),")
             content.append("")
             
             # Back to link
-            back_link_name = f"backTo{clean_name}"
-            content.append(f"      {back_link_name}:")
+            content.append(f"      backTo{link_name[0].upper() + link_name[1:]}:")
             content.append(f"        link.link.new('Back to {display_name}', '/d/' + {dashboard_var}.uid)")
             content.append("        + link.link.options.withKeepTime(true),")
             content.append("")
@@ -641,10 +654,8 @@ class MixinConverter:
         content.append("        + link.dashboards.options.withKeepTime(true)")
         content.append("        + link.dashboards.options.withAsDropdown(true),")
         
-        # Close the initial object
-        content.append("    }")
-
         # Add the conditional logs link
+        content.append("    }")
         content.append("    +")
         content.append("    if this.config.enableLokiLogs then")
         content.append("      {")
@@ -653,8 +664,6 @@ class MixinConverter:
         content.append("          + link.link.options.withKeepTime(true),")
         content.append("      }")
         content.append("    else {},")
-        
-        # Close the structure
         content.append("}")
         
         return '\n'.join(content)
