@@ -22,6 +22,7 @@ class MixinConverter:
             'linear': 'timeSeries',
             'prometheus': 'timeSeries'
         }
+        self.example_metric = None  # Add this line to store a metric name
 
     def extract_panel_definitions(self, content: str) -> Dict[str, Any]:
         """
@@ -419,8 +420,11 @@ class MixinConverter:
             metric_match = re.search(r'([A-Za-z_]+){', expr)
             if metric_match:
                 metric_name = metric_match.group(1)
-                query_name = f"{metric_name}"
+                # Store the first metric name we find as an example
+                if self.example_metric is None:
+                    self.example_metric = metric_name
                 
+                query_name = f"{metric_name}"
                 queries[query_name] = {
                     'expr': expr,
                     'legend': legend
@@ -800,6 +804,52 @@ clean:
                 print(f"Copied {pattern} to output directory")
                 break
 
+    def generate_main_file(self) -> str:
+        """
+        Generates the main.libsonnet file that imports and packages all components.
+        """
+        # Use the stored example metric, or provide a fallback
+        var_metric = self.example_metric or 'up'
+        
+        content = [
+            "local alerts = import './alerts.libsonnet';",
+            "local config = import './config.libsonnet';",
+            "local dashboards = import './dashboards.libsonnet';",
+            "local g = import './g.libsonnet';",
+            "local links = import './links.libsonnet';",
+            "local panels = import './panels.libsonnet';",
+            "local targets = import './targets.libsonnet';",
+            "local variables = import './variables.libsonnet';",
+            "",
+            "{",
+            "  withConfigMixin(config): {",
+            "    config+: config,",
+            "  },",
+            "",
+            "  new(): {",
+            "",
+            "    local this = self,",
+            "    config: config,",
+            "",
+            "    grafana: {",
+            f"      variables: variables.new(this, varMetric='{var_metric}'),",
+            "      targets: targets.new(this),",
+            "      annotations: {},",
+            "      links: links.new(this),",
+            "      panels: panels.new(this),",
+            "      dashboards: dashboards.new(this),",
+            "    },",
+            "",
+            "    prometheus: {",
+            "      alerts: alerts.new(this),",
+            "      recordingRules: {},",
+            "    },",
+            "  },",
+            "}",
+        ]
+        
+        return '\n'.join(content)
+
     def convert_mixin(self, input_dir: Path, output_dir: Path) -> None:
         """
         Converts all dashboard and panel definitions from old format to new format.
@@ -846,7 +896,7 @@ clean:
                     # Extract panel definitions
                     self.panel_definitions.update(self.extract_panel_definitions(content))
                     
-                    # Extract queries
+                    # Extract queries (this will now also store an example metric)
                     self.queries.update(self.extract_queries(content))
                     
                     # Extract dashboard structure
@@ -872,6 +922,10 @@ clean:
         
         links_file = output_dir / 'links.libsonnet'
         links_file.write_text(self.generate_links_file())
+
+        # Generate main.libsonnet
+        main_file = output_dir / 'main.libsonnet'
+        main_file.write_text(self.generate_main_file())
 
         # Run make build after all files are generated
         print("Running make build...")
