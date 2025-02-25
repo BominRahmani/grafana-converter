@@ -50,7 +50,11 @@ class MixinConverter:
                     'params': params,
                     'body': panel_body
                 }
-                panels[panel_name + 'Panel'] = panel_def
+                # Remove the 'Panel' suffix if it's already in the name
+                if panel_name.endswith('Panel'):
+                    panels[panel_name] = panel_def
+                else:
+                    panels[panel_name + 'Panel'] = panel_def
             except Exception as e:
                 print(f"Warning: Could not parse panel {panel_name}: {e}")
         
@@ -337,19 +341,18 @@ class MixinConverter:
 
         # Add each dashboard
         for dashboard in dashboards:
-            # Get the dashboard title and remove any instance of the mixin name
-            mixin_name = dashboard['title'].split()[0].lower()  # Assume first word is mixin name
-            remaining_title = ' '.join(dashboard['title'].split()[1:])  # Rest of the title
+            # Get the dashboard title
+            title = dashboard['title']
             
-            # Create dashboard ID from remaining title
-            dashboard_id = remaining_title.lower().replace(' ', '_').replace('-', '_')
+            # Create full dashboard ID that preserves the mixin name
+            # Convert to lowercase and replace spaces with underscores
+            dashboard_id = title.lower().replace(' ', '_').replace('-', '_')
             
-            # Create link name using standardized method and prepend mixin name
-            base_link_name = self._create_link_name(remaining_title)
-            link_name = f"{mixin_name.lower()}{base_link_name[0].upper()}{base_link_name[1:]}"
+            # Create link name using standardized method
+            base_link_name = self._create_link_name(title)
             
             content.append(f"      {dashboard_id}:")
-            content.append(f"        g.dashboard.new(prefix + ' {dashboard['title']}')")
+            content.append(f"        g.dashboard.new(prefix + ' {title}')")
             content.append("        + g.dashboard.withPanels(")
             content.append("          g.util.grid.wrapPanels(")
             content.append("            [")
@@ -357,6 +360,7 @@ class MixinConverter:
             # Add panels for this dashboard
             for panel in dashboard['panels']:
                 grid_pos = panel.get('gridPos', {})
+                # Use the panel name as is, without adding 'Panel' suffix
                 content.append(f"              panels.{panel['name']} {{ gridPos+: {{ h: {grid_pos.get('h', 8)}, w: {grid_pos.get('w', 12)}, x: {grid_pos.get('x', 0)}, y: {grid_pos.get('y', 0)} }} }},")
 
             content.append("            ]")
@@ -366,7 +370,7 @@ class MixinConverter:
             content.append("          vars.singleInstance,")
             content.append(f"          uid + '_{dashboard_id}',")
             content.append("          tags,")
-            content.append(f"          links {{ {link_name}+:: {{}} }},")  # Now includes mixin name
+            content.append(f"          links {{ {base_link_name}+:: {{}} }},")
             content.append("          annotations,")
             content.append("          timezone,")
             content.append("          refresh,")
@@ -374,8 +378,50 @@ class MixinConverter:
             content.append("        ),")
             content.append("")
 
+            # Store the full dashboard_id for use in links generation
+            self.dashboard_names.append(f"{dashboard_id}.json")
+
+        # Add the logs dashboard section
+        content.append("    }")
+        content.append("    +")
+        content.append("    if this.config.enableLokiLogs then")
+        content.append("      {")
+        content.append("        logs:")
+        content.append("          logslib.new(")
+        content.append("            prefix + ' logs',")
+        content.append("            datasourceName=this.grafana.variables.datasources.loki.name,")
+        content.append("            datasourceRegex=this.grafana.variables.datasources.loki.regex,")
+        content.append("            filterSelector=this.config.filteringSelector,")
+        content.append("            labels=this.config.groupLabels + this.config.extraLogLabels,")
+        content.append("            formatParser=null,")
+        content.append("            showLogsVolume=this.config.showLogsVolume,")
+        content.append("          )")
+        content.append("          {")
+        content.append("            dashboards+:")
+        content.append("              {")
+        content.append("                logs+:")
+        content.append("                  // reference to self, already generated variables, to keep them, but apply other common data in applyCommon")
+        content.append("                  root.applyCommon(super.logs.templating.list, uid=uid + '-logs', tags=tags, links=links { logs+:: {} }, annotations=annotations, timezone=timezone, refresh=refresh, period=period),")
+        content.append("              },")
+        content.append("            panels+:")
+        content.append("              {")
+        content.append("                // modify log panel")
+        content.append("                logs+:")
+        content.append("                  g.panel.logs.options.withEnableLogDetails(true)")
+        content.append("                  + g.panel.logs.options.withShowTime(false)")
+        content.append("                  + g.panel.logs.options.withWrapLogMessage(false),")
+        content.append("              },")
+        content.append("            variables+: {")
+        content.append("              // add prometheus datasource for annotations processing")
+        content.append("              toArray+: [")
+        content.append("                this.grafana.variables.datasources.prometheus { hide: 2 },")
+        content.append("              ],")
+        content.append("            },")
+        content.append("          }.dashboards.logs,")
+        content.append("      }")
+        content.append("    else {},")
+
         # Add the applyCommon function
-        content.append("    },")
         content.append("")
         content.append("  applyCommon(vars, uid, tags, links, annotations, timezone, refresh, period):")
         content.append("    g.dashboard.withTags(tags)")
@@ -480,8 +526,9 @@ class MixinConverter:
         content.append("  new(this): {")
         content.append("    local vars = this.grafana.variables,")
         content.append("    local config = this.config,")
-        content.append("    local testNameLabel = config.testNameLabel,")
-        content.append("    local nodeNameLabel = config.nodeNameLabel,")
+        content.append("    // Add default values if these labels don't exist in config")
+        content.append("    local testNameLabel = if std.objectHas(config, 'testNameLabel') then config.testNameLabel else ['test'],")
+        content.append("    local nodeNameLabel = if std.objectHas(config, 'nodeNameLabel') then config.nodeNameLabel else ['node'],")
         content.append("")
         
         # Add query definitions
@@ -542,8 +589,8 @@ class MixinConverter:
         content.append("      local filteringSelector = this.config.filteringSelector,")
         content.append("      local groupLabels = this.config.groupLabels,")
         content.append("      local instanceLabels = this.config.instanceLabels,")
-        content.append("      local nodeNameLabel = this.config.nodeNameLabel,")
-        content.append("      local testNameLabel = this.config.testNameLabel,")
+        content.append("      local nodeNameLabel = if std.objectHas(this.config, 'nodeNameLabel') then this.config.nodeNameLabel else ['node'],")
+        content.append("      local testNameLabel = if std.objectHas(this.config, 'testNameLabel') then this.config.testNameLabel else ['test'],")
         content.append("")
         content.append("      local root = self,")
         
@@ -573,11 +620,15 @@ class MixinConverter:
         content.append("          );")
         content.append("        std.mapWithIndex(chainVarProto, utils.chainLabels(groupLabels + instanceLabels, [filteringSelector])),")
         
-        # Add datasource definition
+        # Add datasource definition with both Prometheus and Loki
         content.append("      datasources: {")
         content.append("        prometheus:")
         content.append("          var.datasource.new('prometheus_datasource', 'prometheus')")
         content.append("          + var.datasource.generalOptions.withLabel('Data source')")
+        content.append("          + var.datasource.withRegex(''),")
+        content.append("        loki:")
+        content.append("          var.datasource.new('loki_datasource', 'loki')")
+        content.append("          + var.datasource.generalOptions.withLabel('Loki data source')")
         content.append("          + var.datasource.withRegex(''),")
         content.append("      },")
         content.append("")
@@ -628,22 +679,36 @@ class MixinConverter:
         content.append("  new(this):")
         content.append("    {")
         
+        # Track link names to avoid duplicates
+        used_link_names = set()
+        
         # Add regular dashboard links and "back to" links for each dashboard
         for dashboard_name in self.dashboard_names:
             # Use standardized method for link names
             link_name = self._create_link_name(dashboard_name)
-            display_name = ' '.join(word.title() for word in dashboard_name.replace('.json', '').split('-'))
-            dashboard_var = f"this.grafana.dashboards['{dashboard_name}']"
             
-            # Regular dashboard link
+            # Skip if we've already created this link
+            if link_name in used_link_names:
+                continue
+            
+            used_link_names.add(link_name)
+            
+            # First replace hyphens with underscores, then split by underscores
+            clean_name = dashboard_name.replace('.json', '').replace('-', '_')
+            display_name = ' '.join(word.title() for word in clean_name.split('_'))
+            
+            # Convert dashboard_name to a property name (remove .json, replace hyphens with underscores)
+            dashboard_prop = dashboard_name.replace('.json', '').replace('-', '_')
+            
+            # Regular dashboard link - using property access notation
             content.append(f"      {link_name}:")
-            content.append(f"        link.link.new('{display_name}', '/d/' + {dashboard_var}.uid)")
+            content.append(f"        link.link.new('{display_name}', '/d/' + this.grafana.dashboards.{dashboard_prop}.uid)")
             content.append("        + link.link.options.withKeepTime(true),")
             content.append("")
             
-            # Back to link
+            # Back to link - using property access notation
             content.append(f"      backTo{link_name[0].upper() + link_name[1:]}:")
-            content.append(f"        link.link.new('Back to {display_name}', '/d/' + {dashboard_var}.uid)")
+            content.append(f"        link.link.new('Back to {display_name}', '/d/' + this.grafana.dashboards.{dashboard_prop}.uid)")
             content.append("        + link.link.options.withKeepTime(true),")
             content.append("")
 
@@ -660,7 +725,7 @@ class MixinConverter:
         content.append("    if this.config.enableLokiLogs then")
         content.append("      {")
         content.append("        logs:")
-        content.append("          link.link.new(std.join(' ', [std.get(this.config.dashboardTitle, 'Logs'), 'Logs']), '/d/' + this.grafana.dashboards.logs.uid)")
+        content.append("          link.link.new('Logs', '/d/' + this.grafana.dashboards.logs.uid)")
         content.append("          + link.link.options.withKeepTime(true),")
         content.append("      }")
         content.append("    else {},")
@@ -904,6 +969,77 @@ clean:
             # Change back to original directory
             os.chdir(original_dir)
 
+    def generate_mixin_file(self, mixin_name: str = None) -> str:
+        """
+        Generates the mixin.libsonnet file that imports main.libsonnet and exports dashboards and rules.
+        
+        Args:
+            mixin_name: Optional name of the mixin. If not provided, will try to determine from config or use 'mixin'.
+        """
+        # If mixin_name not provided, try to determine it from config or dashboard tags
+        if not mixin_name:
+            # Try to extract from dashboard titles
+            if self.dashboards and len(self.dashboards) > 0:
+                # Assume first word of first dashboard title is the mixin name
+                first_dashboard = self.dashboards[0]
+                if 'title' in first_dashboard and first_dashboard['title']:
+                    mixin_name = first_dashboard['title'].split()[0].lower()
+        
+            # If still not found, use a default
+            if not mixin_name:
+                mixin_name = 'mixin'
+        
+        content = [
+            f"local {mixin_name}lib = import './main.libsonnet';",
+            "",
+            f"local {mixin_name} =",
+            f"  {mixin_name}lib.new()",
+            f"  + {mixin_name}lib.withConfigMixin(",
+            "    {",
+            "      filteringSelector: 'job=~\"integrations/" + mixin_name + "\"',",
+            f"      uid: '{mixin_name}',",
+            "      enableLokiLogs: true,",
+            "    }",
+            "  );",
+            "",
+            "// populate monitoring-mixin:",
+            "{",
+            f"  grafanaDashboards+:: {mixin_name}.grafana.dashboards,",
+            f"  prometheusAlerts+:: {mixin_name}.prometheus.alerts,",
+            f"  prometheusRules+:: {mixin_name}.prometheus.recordingRules,",
+            "}",
+        ]
+        
+        return '\n'.join(content)
+
+    def generate_alerts_file(self) -> str:
+        """
+        Generates a basic alerts.libsonnet file.
+        """
+        content = [
+            "{",
+            "  new(this): {",
+            "    // Add your alerts here",
+            "    // Example:",
+            "    // exampleAlert:",
+            "    //   {",
+            "    //     alert: 'ExampleAlert',",
+            "    //     expr: 'up == 0',",
+            "    //     'for': '5m',",
+            "    //     labels: {",
+            "    //       severity: 'critical',",
+            "    //     },",
+            "    //     annotations: {",
+            "    //       summary: 'Instance {{ $labels.instance }} down',",
+            "    //       description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 5 minutes.',",
+            "    //     },",
+            "    //   },",
+            "  },",
+            "}",
+        ]
+        
+        return '\n'.join(content)
+
     def convert_mixin(self, input_dir: Path, output_dir: Path) -> None:
         """
         Converts all dashboard and panel definitions from old format to new format.
@@ -982,6 +1118,23 @@ clean:
         # Generate main.libsonnet
         main_file = output_dir / 'main.libsonnet'
         main_file.write_text(self.generate_main_file())
+        
+        # Generate mixin.libsonnet
+        # Try to determine mixin name from dashboard titles
+        mixin_name = None
+        if self.dashboards and len(self.dashboards) > 0:
+            first_dashboard = self.dashboards[0]
+            if 'title' in first_dashboard and first_dashboard['title']:
+                # Extract first word from title as mixin name
+                mixin_name = first_dashboard['title'].split()[0].lower()
+        
+        mixin_file = output_dir / 'mixin.libsonnet'
+        mixin_file.write_text(self.generate_mixin_file(mixin_name))
+        
+        # Generate alerts.libsonnet if it doesn't exist
+        alerts_file = output_dir / 'alerts.libsonnet'
+        if not alerts_file.exists():
+            alerts_file.write_text(self.generate_alerts_file())
 
         # Run make build after all files are generated
         print("Running make build...")
