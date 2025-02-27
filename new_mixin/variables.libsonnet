@@ -24,12 +24,10 @@ local utils = commonlib.utils;
           )
           + var.query.generalOptions.withLabel(utils.toSentenceCase(chainVar.label))
           + var.query.selectionOptions.withIncludeAll(
-            value=if (!multiInstance && std.member(instanceLabels, chainVar.label)) then false else true,
+            value=true,
             customAllValue='.+'
           )
-          + var.query.selectionOptions.withMulti(
-            if (!multiInstance && std.member(instanceLabels, chainVar.label)) then false else true,
-          )
+          + var.query.selectionOptions.withMulti(true)
           + var.query.refresh.onTime()
           + var.query.withSort(
             i=1,
@@ -41,7 +39,7 @@ local utils = commonlib.utils;
       datasources: {
         prometheus:
           var.datasource.new('prometheus_datasource', 'prometheus')
-          + var.datasource.generalOptions.withLabel('Data source')
+          + var.datasource.generalOptions.withLabel('Prometheus data source')
           + var.datasource.withRegex(''),
         loki:
           var.datasource.new('loki_datasource', 'loki')
@@ -75,5 +73,6 @@ local utils = commonlib.utils;
         '%s' % [
           utils.labelsToPromQLSelector(groupLabels + instanceLabels + nodeNameLabel),
         ],
+
     },
 }

@@ -92,7 +92,7 @@ class MixinConverter:
                 "commonlib.panels.generic.timeSeries.base.new(",
                 f"  '{title}',",
                 "  targets=[" + ", ".join(targets) + "]," if targets else "  targets=[],",
-                f"  description='{description}'"
+                f"  description='{description}'",
                 ")"
             ]
 
@@ -113,7 +113,7 @@ class MixinConverter:
             span_nulls_match = re.search(r'spanNulls:\s*(true|false)', raw_body)
             if span_nulls_match:
                 panel_lines.append(
-                    f"+ g.panel.timeSeries.fieldConfig.defaults.custom.withSpanNulls('{span_nulls_match.group(1)}')"
+                    f"+ g.panel.timeSeries.fieldConfig.defaults.custom.withSpanNulls({span_nulls_match.group(1)})"
                 )
 
             return '\n'.join(panel_lines)
@@ -526,31 +526,105 @@ class MixinConverter:
         content.append("  new(this): {")
         content.append("    local vars = this.grafana.variables,")
         content.append("    local config = this.config,")
-        content.append("    // Add default values if these labels don't exist in config")
-        content.append("    local testNameLabel = if std.objectHas(config, 'testNameLabel') then config.testNameLabel else ['test'],")
-        content.append("    local nodeNameLabel = if std.objectHas(config, 'nodeNameLabel') then config.nodeNameLabel else ['node'],")
+        
+        # Add selector variables
+        if hasattr(self, 'selector_patterns') and self.selector_patterns:
+            main_selector = next((name for name in self.selector_patterns.keys() 
+                                 if name.lower() != 'filterselector'), None)
+            if main_selector:
+                content.append(f"    // Main selector from old config: {main_selector}")
+                content.append(f"    local selectorVar = vars.{main_selector},")
+        else:
+            content.append("    // Add default values if these labels don't exist in config")
+            content.append("    local testNameLabel = if std.objectHas(config, 'testNameLabel') then config.testNameLabel else ['test'],")
+            content.append("    local nodeNameLabel = if std.objectHas(config, 'nodeNameLabel') then config.nodeNameLabel else ['node'],")
+        
         content.append("")
         
-        # Add query definitions
+        # Add query definitions with improved selector handling
         for query_name, query_def in self.queries.items():
             expr = query_def['expr']
             legend = query_def.get('legend', '')
             
-            # Determine if this is a node-based or test-based query
-            if 'node_name' in expr:
-                selector_var = '%(nodeNameSelector)s'
-                legend_label = 'nodeNameLabel'
+            # Determine which selector to use
+            selector_var = None
+            if hasattr(self, 'selector_patterns') and self.selector_patterns:
+                # Try to find which selector pattern is used in this query
+                used_selector = None
+                for selector_name, selector_pattern in self.selector_patterns.items():
+                    # Check if this selector pattern appears in the expression
+                    if selector_pattern in expr:
+                        used_selector = selector_name
+                        break
+                
+                # If we found a matching selector, use it
+                if used_selector:
+                    # Replace the old selector pattern with the new variable reference
+                    selector_var = f"%({used_selector})s"
+                    expr = expr.replace('{' + selector_pattern + '}', '{' + selector_var + '}')
+                else:
+                    # Default to testNameSelector or nodeNameSelector based on content
+                    if 'node_name' in expr:
+                        selector_var = '%(nodeNameSelector)s'
+                    else:
+                        selector_var = '%(testNameSelector)s'
+                
+                # Apply the selector
+                if '{' in expr and '}' in expr:
+                    # Replace existing selector
+                    expr = re.sub(r'{[^}]*}', '{' + selector_var + '}', expr)
+                elif '{' in expr:
+                    # Complete incomplete selector
+                    expr = expr.replace('{', '{' + selector_var + '}')
             else:
-                selector_var = '%(testNameSelector)s'
-                legend_label = 'testNameLabel'
+                # Use the existing logic for determining selectors
+                if 'node_name' in expr:
+                    selector_var = '%(nodeNameSelector)s'
+                    legend_label = 'nodeNameLabel'
+                else:
+                    selector_var = '%(testNameSelector)s'
+                    legend_label = 'testNameLabel'
             
-            # Complete the query with selector and time range if needed
-            if '{' in expr and '}' not in expr:
-                expr = expr + selector_var + '}'
-            if '$__interval' not in expr and 'rate(' in expr:
-                expr = expr + '[$__rate_interval]'
-            if '$__interval' not in expr and 'increase(' in expr:
-                expr = expr + '[$__interval:]'
+            # Ensure all queries have a selector
+            if '{' not in expr:
+                # If there's no selector at all, add one
+                metric_match = re.search(r'^([A-Za-z0-9_]+)', expr)
+                if metric_match:
+                    metric_name = metric_match.group(1)
+                    expr = expr.replace(metric_name, f"{metric_name}{{{selector_var}}}")
+            elif '{' in expr and '}' not in expr:
+                # If the selector is incomplete, complete it properly
+                expr = expr.replace('{', '{' + selector_var + '}')
+            elif '{' in expr and '}' in expr and '{}' in expr:
+                # If there's an empty selector, add the appropriate one
+                expr = expr.replace('{}', '{' + selector_var + '}')
+            
+            # Fix time intervals and other issues
+            # Ensure the query has proper closing braces
+            if expr.count('{') > expr.count('}'):
+                expr += '}'  # Add closing brace if missing
+            
+            # Add time range for rate/increase functions if not present
+            # IMPORTANT: Make sure the time interval is placed AFTER the closing curly brace, not inside the selector
+            if any(func in expr for func in ['rate(', 'increase(', 'irate(']) and not any(interval in expr for interval in ['[$__interval]', '[$__rate_interval]']):
+                # Find the position of the closing curly brace after the metric name
+                metric_match = re.search(r'(rate|increase|irate)\(([A-Za-z0-9_]+){[^}]*}', expr)
+                if metric_match:
+                    # Insert the time interval after the closing curly brace
+                    expr_parts = expr.split('}', 1)
+                    if len(expr_parts) > 1:
+                        expr = expr_parts[0] + '}[$__rate_interval]' + expr_parts[1]
+                    else:
+                        # If we can't split properly, add to the end before the last parenthesis
+                        last_paren_index = expr.rfind(')')
+                        if last_paren_index != -1:
+                            expr = expr[:last_paren_index] + '[$__rate_interval]' + expr[last_paren_index:]
+            
+            # Ensure all opening parentheses have matching closing parentheses
+            open_count = expr.count('(')
+            close_count = expr.count(')')
+            if open_count > close_count:
+                expr += ')' * (open_count - close_count)
             
             content.append(f"    {query_name}:")
             content.append("      prometheusQuery.new(")
@@ -560,7 +634,10 @@ class MixinConverter:
             
             # Add legend format if present
             if legend:
-                content.append(f"      + prometheusQuery.withLegendFormat('%s' % utils.labelsToPanelLegend({legend_label})),")
+                if hasattr(self, 'selector_patterns') and self.selector_patterns:
+                    content.append("      + prometheusQuery.withLegendFormat('%s' % utils.labelsToPanelLegend(config.groupLabels + config.instanceLabels)),")
+                else:
+                    content.append(f"      + prometheusQuery.withLegendFormat('%s' % utils.labelsToPanelLegend({legend_label})),")
             else:
                 content.append("      ,")
             content.append("")
@@ -605,12 +682,10 @@ class MixinConverter:
         content.append("          )")
         content.append("          + var.query.generalOptions.withLabel(utils.toSentenceCase(chainVar.label))")
         content.append("          + var.query.selectionOptions.withIncludeAll(")
-        content.append("            value=if (!multiInstance && std.member(instanceLabels, chainVar.label)) then false else true,")
+        content.append("            value=true,")
         content.append("            customAllValue='.+'")
         content.append("          )")
-        content.append("          + var.query.selectionOptions.withMulti(")
-        content.append("            if (!multiInstance && std.member(instanceLabels, chainVar.label)) then false else true,")
-        content.append("          )")
+        content.append("          + var.query.selectionOptions.withMulti(true)")
         content.append("          + var.query.refresh.onTime()")
         content.append("          + var.query.withSort(")
         content.append("            i=1,")
@@ -624,7 +699,7 @@ class MixinConverter:
         content.append("      datasources: {")
         content.append("        prometheus:")
         content.append("          var.datasource.new('prometheus_datasource', 'prometheus')")
-        content.append("          + var.datasource.generalOptions.withLabel('Data source')")
+        content.append("          + var.datasource.generalOptions.withLabel('Prometheus data source')")
         content.append("          + var.datasource.withRegex(''),")
         content.append("        loki:")
         content.append("          var.datasource.new('loki_datasource', 'loki')")
@@ -662,6 +737,25 @@ class MixinConverter:
         content.append("        '%s' % [")
         content.append("          utils.labelsToPromQLSelector(groupLabels + instanceLabels + nodeNameLabel),")
         content.append("        ],")
+        content.append("")
+        
+        # Add legacy selector compatibility
+        if hasattr(self, 'selector_patterns') and self.selector_patterns:
+            content.append("")
+            content.append("      // Legacy selector compatibility")
+            for selector_name, selector_pattern in self.selector_patterns.items():
+                # Convert the old selector pattern to a new format reference
+                if 'job' in selector_pattern and 'instance' in selector_pattern:
+                    if 'cluster' in selector_pattern:
+                        content.append(f"      {selector_name}:")
+                        content.append("        utils.labelsToPromQLSelector(groupLabels + instanceLabels),")
+                    else:
+                        content.append(f"      {selector_name}:")
+                        content.append("        utils.labelsToPromQLSelector(groupLabels + instanceLabels),")
+                else:
+                    # For custom selectors, keep the original pattern but reference it through variables
+                    content.append(f"      {selector_name}: '{selector_pattern}',")
+        
         content.append("    },")
         content.append("}")
         
@@ -737,6 +831,9 @@ class MixinConverter:
         """
         Converts old format config.libsonnet to new format.
         """
+        # Extract selector patterns first
+        self.selector_patterns = self.extract_selector_patterns(content)
+        
         # Start with standard config structure
         new_config = [
             "{",
@@ -786,7 +883,7 @@ class MixinConverter:
         enable_loki_logs = enable_loki_logs.group(1) if enable_loki_logs else 'true'
 
         # Find any selector pattern that uses multi-cluster logic
-        selector_pattern = r'(\w+Selector):\s*if\s*self\.enableMultiCluster\s*then\s*\'([^\']+)\'\s*else\s*\'([^\']+)\''
+        selector_pattern = r'(\w+Selector):\s*if\s*self\.enableMultiCluster\s*then\s*\'([^\'"]*)[\'"]\s*else\s*\'([^\'"]*)[\'"]'
         selector_match = re.search(selector_pattern, content)
         
         if selector_match:
@@ -833,6 +930,7 @@ class MixinConverter:
             "  // logs lib related",
             f"  enableLokiLogs: {enable_loki_logs},",
             f"  logLabels: if self.enableMultiCluster then [{multi_cluster_log_labels}] else [{single_cluster_log_labels}],",
+            "  extraLogLabels: [],  // Required by logs-lib",
             "  logsVolumeGroupBy: 'level',",
             "  showLogsVolume: true,",
             "}",
@@ -1177,6 +1275,31 @@ clean:
   ],
   "legacyImports": true
 }'''
+
+    def extract_selector_patterns(self, content: str) -> Dict[str, str]:
+        """
+        Extracts selector patterns from old config format.
+        Returns a dictionary mapping selector names to their patterns.
+        """
+        selectors = {}
+        
+        # Find all selector definitions in the config
+        selector_pattern = r'(\w+Selector):\s*(?:if\s*self\.enableMultiCluster\s*then\s*[\'"]([^\'"]*)[\'"](?:\s*else\s*[\'"]([^\'"]*)[\'"])|\s*[\'"]([^\'"]*)[\'"])'
+        
+        for match in re.finditer(selector_pattern, content, re.DOTALL):
+            selector_name = match.group(1)
+            
+            # Handle conditional selectors (with enableMultiCluster)
+            if match.group(2) is not None:
+                # We'll use the non-multi-cluster version by default
+                selector_value = match.group(3) if match.group(3) else match.group(2)
+            else:
+                # Simple selector
+                selector_value = match.group(4)
+            
+            selectors[selector_name] = selector_value
+        
+        return selectors
 
 def main():
     """
