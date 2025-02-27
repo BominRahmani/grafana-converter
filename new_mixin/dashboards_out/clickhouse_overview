@@ -5,37 +5,21 @@
       "links": [
          {
             "keepTime": true,
-            "title": "Back to Clickhouse Latency",
-            "type": "link",
-            "url": "/d/clickhouse_clickhouse_latency"
-         },
-         {
-            "keepTime": true,
-            "title": "Back to Clickhouse Overview",
-            "type": "link",
-            "url": "/d/clickhouse_clickhouse_overview"
-         },
-         {
-            "keepTime": true,
             "title": "Clickhouse Latency",
             "type": "link",
             "url": "/d/clickhouse_clickhouse_latency"
          },
          {
             "keepTime": true,
+            "title": "Clickhouse Replica",
+            "type": "link",
+            "url": "/d/clickhouse_clickhouse_replica"
+         },
+         {
+            "keepTime": true,
             "title": "Logs",
             "type": "link",
             "url": "/d/clickhouse-logs"
-         },
-         {
-            "asDropdown": true,
-            "includeVars": true,
-            "keepTime": true,
-            "tags": [
-               "clickhouse-mixin"
-            ],
-            "title": "All dashboards",
-            "type": "dashboards"
          }
       ],
       "panels": [
@@ -48,12 +32,11 @@
             "fieldConfig": {
                "defaults": {
                   "custom": {
-                     "fillOpacity": 0,
+                     "fillOpacity": 30,
                      "gradientMode": "opacity",
                      "lineInterpolation": "smooth",
                      "lineWidth": 2,
-                     "showPoints": "never",
-                     "spanNulls": false
+                     "showPoints": "never"
                   },
                   "unit": "ops"
                }
@@ -82,24 +65,24 @@
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "rate(ClickHouseProfileEvents_SelectQuery{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}[$__rate_interval])",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "rate(ClickHouseProfileEvents_SelectQuery{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}[$__rate_interval])",
+                  "legendFormat": "{{instance}} - select"
                },
                {
                   "datasource": {
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "rate(ClickHouseProfileEvents_InsertQuery{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}[$__rate_interval])",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "rate(ClickHouseProfileEvents_InsertQuery{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}[$__rate_interval])",
+                  "legendFormat": "{{instance}} - insert"
                },
                {
                   "datasource": {
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "rate(ClickHouseProfileEvents_AsyncInsertQuery{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}[$__rate_interval])",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "rate(ClickHouseProfileEvents_AsyncInsertQuery{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}[$__rate_interval])",
+                  "legendFormat": "{{instance}} - async insert"
                }
             ],
             "title": "Successful queries",
@@ -114,12 +97,11 @@
             "fieldConfig": {
                "defaults": {
                   "custom": {
-                     "fillOpacity": 0,
+                     "fillOpacity": 30,
                      "gradientMode": "opacity",
                      "lineInterpolation": "smooth",
                      "lineWidth": 2,
-                     "showPoints": "never",
-                     "spanNulls": false
+                     "showPoints": "never"
                   },
                   "unit": "ops"
                }
@@ -148,16 +130,16 @@
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "rate(ClickHouseProfileEvents_FailedSelectQuery{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}[$__rate_interval])",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "rate(ClickHouseProfileEvents_FailedSelectQuery{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}[$__rate_interval])",
+                  "legendFormat": "{{instance}} - failed select"
                },
                {
                   "datasource": {
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "rate(ClickHouseProfileEvents_FailedInsertQuery{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}[$__rate_interval])",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "rate(ClickHouseProfileEvents_FailedInsertQuery{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}[$__rate_interval])",
+                  "legendFormat": "{{instance}} - failed insert"
                }
             ],
             "title": "Failed queries",
@@ -172,12 +154,11 @@
             "fieldConfig": {
                "defaults": {
                   "custom": {
-                     "fillOpacity": 0,
+                     "fillOpacity": 30,
                      "gradientMode": "opacity",
                      "lineInterpolation": "smooth",
                      "lineWidth": 2,
-                     "showPoints": "never",
-                     "spanNulls": false
+                     "showPoints": "never"
                   },
                   "unit": "ops"
                }
@@ -206,8 +187,8 @@
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "rate(ClickHouseProfileEvents_RejectedInserts{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}[$__rate_interval])",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "rate(ClickHouseProfileEvents_RejectedInserts{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}[$__rate_interval])",
+                  "legendFormat": "{{instance}} - rejected inserts"
                }
             ],
             "title": "Rejected inserts",
@@ -222,12 +203,11 @@
             "fieldConfig": {
                "defaults": {
                   "custom": {
-                     "fillOpacity": 0,
+                     "fillOpacity": 30,
                      "gradientMode": "opacity",
                      "lineInterpolation": "smooth",
                      "lineWidth": 2,
-                     "showPoints": "never",
-                     "spanNulls": false
+                     "showPoints": "never"
                   },
                   "unit": "decbytes"
                }
@@ -256,8 +236,8 @@
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "(ClickHouseMetrics_MemoryTracking{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"})",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "(ClickHouseMetrics_MemoryTracking{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"})",
+                  "legendFormat": "{{instance}} - memory tracking"
                }
             ],
             "title": "Memory usage",
@@ -269,6 +249,30 @@
                "uid": "-- Mixed --"
             },
             "description": "Percentage of memory allocated by ClickHouse compared to OS total",
+            "fieldConfig": {
+               "defaults": {
+                  "max": 100,
+                  "min": 0,
+                  "thresholds": {
+                     "mode": "percentage",
+                     "steps": [
+                        {
+                           "color": "green",
+                           "value": null
+                        },
+                        {
+                           "color": "#EAB839",
+                           "value": 80
+                        },
+                        {
+                           "color": "red",
+                           "value": 90
+                        }
+                     ]
+                  },
+                  "unit": "percent"
+               }
+            },
             "gridPos": {
                "h": 8,
                "w": 12,
@@ -277,7 +281,13 @@
             },
             "id": 5,
             "options": {
-               "orientation": "auto"
+               "reduceOptions": {
+                  "calcs": [
+                     "lastNotNull"
+                  ]
+               },
+               "showThresholdLabels": true,
+               "showThresholdMarkers": true
             },
             "pluginVersion": "v11.0.0",
             "targets": [
@@ -286,12 +296,12 @@
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "(ClickHouseMetrics_MemoryTracking{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"})",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "(ClickHouseMetrics_MemoryTracking{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"} / ClickHouseAsyncMetrics_OSMemoryTotal{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}) * 100",
+                  "legendFormat": "{{instance}} - memory usage"
                }
             ],
             "title": "Memory usage",
-            "type": "bargauge"
+            "type": "gauge"
          },
          {
             "datasource": {
@@ -302,12 +312,11 @@
             "fieldConfig": {
                "defaults": {
                   "custom": {
-                     "fillOpacity": 0,
+                     "fillOpacity": 30,
                      "gradientMode": "opacity",
                      "lineInterpolation": "smooth",
                      "lineWidth": 2,
-                     "showPoints": "never",
-                     "spanNulls": false
+                     "showPoints": "never"
                   },
                   "unit": "none"
                }
@@ -336,32 +345,32 @@
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "ClickHouseMetrics_TCPConnection{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "ClickHouseMetrics_TCPConnection{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}",
+                  "legendFormat": "{{instance}} - TCP"
                },
                {
                   "datasource": {
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "ClickHouseMetrics_HTTPConnection{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "ClickHouseMetrics_HTTPConnection{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}",
+                  "legendFormat": "{{instance}} - HTTP"
                },
                {
                   "datasource": {
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "ClickHouseMetrics_MySQLConnection{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "ClickHouseMetrics_MySQLConnection{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}",
+                  "legendFormat": "{{instance}} - MySQL"
                },
                {
                   "datasource": {
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "ClickHouseMetrics_PostgreSQLConnection{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "ClickHouseMetrics_PostgreSQLConnection{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}",
+                  "legendFormat": "{{instance}} - PostgreSQL"
                }
             ],
             "title": "Active connections",
@@ -376,12 +385,11 @@
             "fieldConfig": {
                "defaults": {
                   "custom": {
-                     "fillOpacity": 0,
+                     "fillOpacity": 30,
                      "gradientMode": "opacity",
                      "lineInterpolation": "smooth",
                      "lineWidth": 2,
-                     "showPoints": "never",
-                     "spanNulls": false
+                     "showPoints": "never"
                   },
                   "unit": "Bps"
                }
@@ -410,8 +418,8 @@
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "rate(ClickHouseProfileEvents_NetworkReceiveBytes{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}[$__rate_interval])",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "rate(ClickHouseProfileEvents_NetworkReceiveBytes{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}[$__rate_interval])",
+                  "legendFormat": "{{instance}} - receive"
                }
             ],
             "title": "Network received",
@@ -426,12 +434,11 @@
             "fieldConfig": {
                "defaults": {
                   "custom": {
-                     "fillOpacity": 0,
+                     "fillOpacity": 30,
                      "gradientMode": "opacity",
                      "lineInterpolation": "smooth",
                      "lineWidth": 2,
-                     "showPoints": "never",
-                     "spanNulls": false
+                     "showPoints": "never"
                   },
                   "unit": "Bps"
                }
@@ -460,8 +467,8 @@
                      "type": "prometheus",
                      "uid": "${prometheus_datasource}"
                   },
-                  "expr": "rate(ClickHouseProfileEvents_NetworkSendBytes{job=~\"$job\",instance=~\"$instance\",test=~\"$test\"}[$__rate_interval])",
-                  "legendFormat": "{{job}} - {{instance}}"
+                  "expr": "rate(ClickHouseProfileEvents_NetworkSendBytes{job=~\"$job\",instance=~\"$instance\",job=~\"integrations/clickhouse\"}[$__rate_interval])",
+                  "legendFormat": "{{instance}} - send"
                }
             ],
             "title": "Network transmitted",
@@ -492,7 +499,7 @@
                "label": "Job",
                "multi": true,
                "name": "job",
-               "query": "label_values(ClickHouseProfileEvents_SelectQuery{job=~\"integrations/clickhouse\"}, job)",
+               "query": "label_values(ClickHouseMetrics_InterserverConnection{job=~\"integrations/clickhouse\"}, job)",
                "refresh": 2,
                "sort": 1,
                "type": "query"
@@ -507,7 +514,7 @@
                "label": "Instance",
                "multi": true,
                "name": "instance",
-               "query": "label_values(ClickHouseProfileEvents_SelectQuery{job=~\"integrations/clickhouse\",job=~\"$job\"}, instance)",
+               "query": "label_values(ClickHouseMetrics_InterserverConnection{job=~\"integrations/clickhouse\",job=~\"$job\"}, instance)",
                "refresh": 2,
                "sort": 1,
                "type": "query"

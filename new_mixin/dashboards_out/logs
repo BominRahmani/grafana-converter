@@ -5,18 +5,6 @@
       "links": [
          {
             "keepTime": true,
-            "title": "Back to Clickhouse Latency",
-            "type": "link",
-            "url": "/d/clickhouse_clickhouse_latency"
-         },
-         {
-            "keepTime": true,
-            "title": "Back to Clickhouse Overview",
-            "type": "link",
-            "url": "/d/clickhouse_clickhouse_overview"
-         },
-         {
-            "keepTime": true,
             "title": "Clickhouse Latency",
             "type": "link",
             "url": "/d/clickhouse_clickhouse_latency"
@@ -28,14 +16,10 @@
             "url": "/d/clickhouse_clickhouse_overview"
          },
          {
-            "asDropdown": true,
-            "includeVars": true,
             "keepTime": true,
-            "tags": [
-               "clickhouse-mixin"
-            ],
-            "title": "All dashboards",
-            "type": "dashboards"
+            "title": "Clickhouse Replica",
+            "type": "link",
+            "url": "/d/clickhouse_clickhouse_replica"
          }
       ],
       "panels": [

@@ -136,7 +136,7 @@ local utils = commonlib.utils {
       )
       + prometheusQuery.withLegendFormat('%s - TCP' % utils.labelsToPanelLegend(config.instanceLabels)),
 
-    ClickHouseMetrics_MemoryUsage:
+    ClickHouseMetrics_MemoryUsageGauge:
       prometheusQuery.new(
         '${' + vars.datasources.prometheus.name + '}',
         '(ClickHouseMetrics_MemoryTracking{%(queriesSelector)s} / ClickHouseAsyncMetrics_OSMemoryTotal{%(queriesSelector)s}) * 100' % vars
@@ -212,6 +212,5 @@ local utils = commonlib.utils {
         'increase(ClickHouseProfileEvents_ZooKeeperWaitMicroseconds{%(queriesSelector)s}[$__rate_interval])' % vars
       )
       + prometheusQuery.withLegendFormat('%s - ZooKeeper wait' % utils.labelsToPanelLegend(config.instanceLabels)),
-
   },
 }

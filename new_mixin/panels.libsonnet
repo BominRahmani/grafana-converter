@@ -112,11 +112,24 @@ local utils = commonlib.utils;
       ,
 
       memoryUsageGaugePanel:
-        commonlib.panels.cpu.stat.base(title='Memory usage')
-        + barGauge.queryOptions.withTargets([t.ClickHouseMetrics_MemoryUsage])
-        + barGauge.panelOptions.withDescription('Percentage of memory allocated by ClickHouse compared to OS total')
-        + barGauge.options.withOrientation('auto')
-      ,
+        g.panel.gauge.new('Memory usage')
+        + g.panel.gauge.queryOptions.withTargets([t.ClickHouseMetrics_MemoryUsageGauge])
+        + g.panel.gauge.panelOptions.withDescription('Percentage of memory allocated by ClickHouse compared to OS total')
+        + g.panel.gauge.standardOptions.withUnit('percent')
+        + g.panel.gauge.standardOptions.withMin(0)
+        + g.panel.gauge.standardOptions.withMax(100)
+        + g.panel.gauge.standardOptions.thresholds.withMode('percentage')
+        + g.panel.gauge.standardOptions.thresholds.withSteps([
+          g.panel.gauge.standardOptions.threshold.step.withColor('green')
+          + g.panel.gauge.standardOptions.threshold.step.withValue(null),
+          g.panel.gauge.standardOptions.threshold.step.withColor('#EAB839')  // Yellow
+          + g.panel.gauge.standardOptions.threshold.step.withValue(80),
+          g.panel.gauge.standardOptions.threshold.step.withColor('red')
+          + g.panel.gauge.standardOptions.threshold.step.withValue(90),
+        ])
+        + g.panel.gauge.options.withShowThresholdLabels(true)
+        + g.panel.gauge.options.withShowThresholdMarkers(true)
+        + g.panel.gauge.options.reduceOptions.withCalcs(['lastNotNull']),
 
       activeConnectionsPanel:
         commonlib.panels.generic.timeSeries.base.new(
