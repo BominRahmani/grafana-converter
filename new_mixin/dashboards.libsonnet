@@ -15,6 +15,32 @@ local logslib = import 'logs-lib/logs/main.libsonnet';
     local panels = this.grafana.panels;
 
     {
+      clickhouse_replica:
+        g.dashboard.new(prefix + ' ClickHouse replica')
+        + g.dashboard.withPanels(
+          g.util.grid.wrapPanels(
+            [
+              panels.interserverConnectionsPanel { gridPos+: { h: 8, w: 12, x: 0, y: 0 } },
+              panels.replicaQueueSizePanel { gridPos+: { h: 8, w: 12, x: 12, y: 0 } },
+              panels.replicaOperationsPanel { gridPos+: { h: 8, w: 12, x: 0, y: 8 } },
+              panels.replicaReadOnlyPanel { gridPos+: { h: 8, w: 12, x: 12, y: 8 } },
+              panels.zooKeeperWatchesPanel { gridPos+: { h: 8, w: 12, x: 0, y: 16 } },
+              panels.zooKeeperSessionsPanel { gridPos+: { h: 8, w: 12, x: 12, y: 16 } },
+              panels.zooKeeperRequestsPanel { gridPos+: { h: 8, w: 24, x: 0, y: 24 } },
+            ]
+          )
+        )
+        + root.applyCommon(
+          vars.singleInstance,
+          uid + '_clickhouse_replica',
+          tags,
+          links { clickhouseReplica+:: {} },
+          annotations,
+          timezone,
+          refresh,
+          period
+        ),
+
       clickhouse_overview:
         g.dashboard.new(prefix + ' ClickHouse overview')
         + g.dashboard.withPanels(

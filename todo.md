@@ -12,4 +12,12 @@
 - Convert Alerts
 
 
+- Fix dictionary issue where one metric exists per dictionary for targets/queries
 
+- Fix links so they dont have "back to"
+
+- look into dashboard variable stuff (this might be the only manual step)
+
+- run make fmt automatically after a make build
+
+- look into automating the use of common lib panels a bit better (this might also be manual)

@@ -18,7 +18,7 @@ local variables = import './variables.libsonnet';
     config: config,
 
     grafana: {
-      variables: variables.new(this, varMetric='ClickHouseProfileEvents_SelectQuery'),
+      variables: variables.new(this, varMetric='ClickHouseMetrics_InterserverConnection'),
       targets: targets.new(this),
       annotations: {},
       links: links.new(this),

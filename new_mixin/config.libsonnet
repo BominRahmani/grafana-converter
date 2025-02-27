@@ -19,6 +19,9 @@
   dashboardTimezone: 'default',
   dashboardRefresh: '1m',
 
+  // alert thresholds
+  alertsReplicasMaxQueueSize: '99',
+
   // logs lib related
   enableLokiLogs: true,
   logLabels: if self.enableMultiCluster then ['job', 'instance', 'cluster', 'level'] else ['job', 'instance', 'level'],
